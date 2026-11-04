@@ -1,0 +1,4 @@
+biopython==1.85
+numpy==2.3.5
+tkinterdnd2==0.7.0
+pyinstaller==6.22.3

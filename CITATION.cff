@@ -1,0 +1,13 @@
+cff-version: 1.2.0
+message: "If you use namiyomi, please cite this software and record the version and processing settings."
+type: software
+title: namiyomi
+version: 0.0.1
+date-released: 2026-11-04
+license: MIT
+repository-code: "https://github.com/yoneoka-katsuhiro/namiyomi"
+url: "https://github.com/yoneoka-katsuhiro/namiyomi"
+authors:
+  - family-names: Yoneoka
+    given-names: Katsuhiro
+abstract: "Local AB1 chromatogram review, sequence editing and selected-read Sanger contig assembly."

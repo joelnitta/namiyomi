@@ -1,0 +1,13 @@
+Suggested citation:
+Yoneoka, Katsuhiro (2026). namiyomi (version 0.0.1) [Computer software].
+Mishima, Shizuoka, Japan.
+
+Repository: https://github.com/yoneoka-katsuhiro/namiyomi
+CITATION.cff provides machine-readable citation metadata. No DOI has been
+assigned. Report the software version and assembly,
+trimming and review decisions when describing a sequencing workflow.
+
+The application code is licensed under the MIT License (see LICENSE.txt).
+Third-party components retain their own licenses. Their notices are bundled in
+Contents/Resources/ThirdPartyNotices (macOS) or ThirdPartyNotices (Windows) and
+are not replaced by the app's license.

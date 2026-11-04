@@ -1,0 +1,6 @@
+APP_NAME = 'namiyomi'
+APP_VERSION = '0.0.1'
+APP_BUILD = '10'
+APP_BUNDLE_ID = 'local.yoneoka.namiyomi'
+DEVELOPER = 'Yoneoka Katsuhiro'
+LOCATION = 'Mishima, Shizuoka, JAPAN'

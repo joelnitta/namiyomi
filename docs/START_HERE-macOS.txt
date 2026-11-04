@@ -1,0 +1,56 @@
+namiyomi ver 0.0.1 — macOS
+
+A focused AB1 chromatogram editor and Sanger contig assembler.
+Free software under the MIT License.
+https://github.com/yoneoka-katsuhiro/namiyomi
+
+OPEN THE APP
+
+1. Extract the ZIP completely, then open the namiyomi folder.
+2. Open namiyomi.app. No separate Python installation is required.
+3. You may move namiyomi.app to an Applications folder. Keep the separate demo
+   folder if you want to try the example project.
+
+Target: Apple Silicon, macOS 15 or later. This is not an Intel or universal app.
+
+This is an ad-hoc signed development release. It is not Developer ID signed or
+Apple notarized. macOS may warn about or block it. Review the source and release
+information before deciding whether to run it. Do not disable system security
+protections to install the application.
+https://developer.apple.com/developer-id/
+
+TRY THE DEMO
+
+1. Choose File > Import Previous Project and open demo/Demo.json.
+2. Select a contig in the left sidebar. Inspect the consensus and aligned traces.
+3. Try Find, edit a base, then press Command+Z to undo the change.
+4. Use File > Save Project As to save a separate practice copy.
+
+The demo's four AB1 files and trace signals are synthetic. They are not biological
+observations or instrument measurements. Keep Demo.json and its four AB1 files
+together. To practise assembly, start a new project, import the demo AB1 files,
+Shift-click a matching pair, then choose Assembly > Build Contig (manual).
+
+USE YOUR OWN READS
+
+Import AB1 files, inspect the automatic end trimming, then select reads from the
+same specimen and locus. Build Contig (manual) supports two or more reads.
+Check the consensus against the traces before exporting FASTA. The in-app
+Help > How To provides numbered instructions.
+
+KEEP YOUR DATA SAFE
+
+Version 0.0.1 is an early release. Keep original AB1 files and independent backups.
+Project JSON references the AB1 files rather than embedding them. When moving a
+project to another computer, include those AB1 files and preserve their relative
+folder structure. Recovery snapshots do not replace regular saving or backups.
+
+Support Q is supporting original Phred evidence, not a calibrated combined
+probability. Verify exported sequences before using them in an analysis.
+
+Instructions / release notes:
+https://github.com/yoneoka-katsuhiro/namiyomi#readme
+Japanese:
+https://github.com/yoneoka-katsuhiro/namiyomi/blob/main/README-ja.md
+
+Developed by Katsuhiro Yoneoka, Mishima, Shizuoka, Japan.
