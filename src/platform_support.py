@@ -7,6 +7,13 @@ from pathlib import Path
 import sys
 
 
+def resource_root():
+    """Locate shared assets/notices in a checkout or a frozen application."""
+    if getattr(sys, 'frozen', False):
+        return Path(sys._MEIPASS)
+    return Path(__file__).resolve().parents[1]
+
+
 def application_support_directory():
     """Use a per-user, non-roaming directory for local snapshots/preferences."""
     if sys.platform == 'darwin':

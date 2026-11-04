@@ -20,6 +20,8 @@ git clone https://github.com/yoneoka-katsuhiro/namiyomi.git
 cd namiyomi
 ```
 
+The repository keeps application code in `src/`, automated tests in `tests/`, build definitions in `packaging/`, and pinned dependencies in `requirements/`. The `assets/`, `demo/`, and `third_party_licenses/` directories are shared by both platform builds. Run the commands below from the repository root unless stated otherwise.
+
 Use Python 3.12 with a working Tk 8.6 installation. Match the Python architecture to the application target: arm64 on macOS, x64 on Windows. Check that `python -m tkinter` opens its test window before continuing. Building from source requires an internet connection to install dependencies; normal application use and sequence processing do not.
 
 ### macOS source environment
@@ -29,9 +31,9 @@ Run these commands from the repository directory in a terminal, using an arm64 P
 ```sh
 python3 -m venv .venv
 source .venv/bin/activate
-python -m pip install -r requirements-build.txt
+python -m pip install -r requirements/build.txt
 python -m tkinter
-python app.py
+python src/app.py
 ```
 
 Use **File > Import Previous Project** to open `demo/Demo.json`. Keep all four AB1 files beside it. The demo contains synthetic sequences and trace signals, not biological or instrument data.
@@ -42,9 +44,9 @@ Run these commands from the repository directory in PowerShell, with x64 Python 
 
 ```powershell
 py -3.12 -m venv .venv
-.\.venv\Scripts\python.exe -m pip install -r requirements-build.txt
+.\.venv\Scripts\python.exe -m pip install -r requirements/build.txt
 .\.venv\Scripts\python.exe -m tkinter
-.\.venv\Scripts\python.exe app.py
+.\.venv\Scripts\python.exe src/app.py
 ```
 
 Using the environment's executable directly avoids requiring activation of a PowerShell script. No administrator privileges are needed by these commands.
@@ -54,8 +56,8 @@ Using the environment's executable directly avoids requiring activation of a Pow
 From a prepared environment, run:
 
 ```sh
-python -m unittest discover -q
-python app.py --smoke-test smoke-report.json
+python scripts/run_tests.py
+python src/app.py --smoke-test smoke-report.json
 ```
 
 On Windows, replace `python` with `.\.venv\Scripts\python.exe` if the environment is not activated. The startup check creates a temporary editor session and writes a JSON report; it does not open user AB1 files or projects. It checks a narrow startup path, not scientific accuracy or the complete interactive workflow.
@@ -70,10 +72,10 @@ To build without installing or replacing an application:
 
 ```sh
 source .venv/bin/activate
-NAMIYOMI_INSTALL=0 SANGER_PYTHON="$PWD/.venv/bin/python" ./build_macos.command
+NAMIYOMI_INSTALL=0 SANGER_PYTHON="$PWD/.venv/bin/python" ./packaging/build_macos.command
 ```
 
-The default path builds the native menu helper, packages the application with PyInstaller, collects third-party notices, applies an ad-hoc signature, verifies it, and writes `release/namiyomi-0.0.1-macOS-arm64-development.zip`. It does not upload the app to Apple.
+The default path runs the tests, builds the native menu helper, packages the application with PyInstaller, collects third-party notices, applies an ad-hoc signature, verifies it, and writes `release/namiyomi-0.0.1-macOS-arm64-development.zip`. It does not upload the app to Apple. The build script resolves its source and resource paths from its own location and can also be invoked from another working directory.
 
 `NAMIYOMI_INSTALL=1` also installs the application in the current user's `Applications` folder. `SANGER_APP_DIR` can name a different installation folder. The script refuses to replace a running app or an unrelated application. Previous generated application/archive copies are moved to Trash rather than silently overwritten. Only temporary intermediates created by that invocation are removed automatically.
 
@@ -90,7 +92,7 @@ NAMIYOMI_INSTALL=0 \
 NAMIYOMI_CODESIGN_IDENTITY='Developer ID Application: YOUR NAME (TEAMID)' \
 NAMIYOMI_NOTARY_PROFILE='YOUR_EXISTING_KEYCHAIN_PROFILE' \
 NAMIYOMI_NOTARIZE=1 \
-./build_macos.command
+./packaging/build_macos.command
 ```
 
 The identity and profile names are placeholders, not credentials. The script requires a unique valid Developer ID Application identity, resolving either its exact name or its SHA-1 fingerprint. It signs nested code, enables hardened runtime, seals the outer bundle with a secure timestamp, and checks Apple's certificate requirements.
@@ -101,10 +103,10 @@ Treat upload success or an `Accepted` result alone as insufficient release evide
 
 ## Build the Windows ZIP
 
-Build natively on x64 Windows with Python 3.12 and the pinned dependencies in `requirements-build.txt`. A Windows executable is not produced by running the macOS build or renaming its output.
+Build natively on x64 Windows with Python 3.12 and the pinned dependencies in `requirements/build.txt`. A Windows executable is not produced by running the macOS build or renaming its output.
 
 ```powershell
-.\build_windows.ps1 -Python ".\.venv\Scripts\python.exe"
+.\packaging\build_windows.ps1 -Python ".\.venv\Scripts\python.exe"
 ```
 
 The script runs tests and a source startup check, builds a windowed application with PyInstaller, collects third-party notices, and writes `release/namiyomi-0.0.1-Windows-x64.zip`. It then extracts the actual ZIP and runs the packaged executable's startup check. It also writes source/binary check reports and a SHA-256 checksum beside the ZIP. It refuses to overwrite an existing release archive.

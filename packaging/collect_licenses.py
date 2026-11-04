@@ -64,7 +64,7 @@ def collect(app):
                          'notices':str(target.relative_to(output))})
     # Wheel metadata does not carry the Python/Tcl runtime's own license. Keep
     # upstream terms, plus GCC runtime exception terms for Conda/NumPy runtimes.
-    upstream=Path(__file__).resolve().parent/'third_party_licenses'
+    upstream=Path(__file__).resolve().parents[1]/'third_party_licenses'
     required=('Python-LICENSE.txt','Tcl-license.terms','Tk-license.terms','TkDND-license.terms',
               'GCC-COPYING3.txt','GCC-RUNTIME-EXCEPTION.txt','OpenSSL-LICENSE.txt')
     for name in required:

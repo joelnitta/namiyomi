@@ -189,7 +189,7 @@ class RecoveryTests(unittest.TestCase):
             code=("import os,sys; from pathlib import Path; from core import Project; from recovery import RecoveryStore; "
                   "p=Project.load(sys.argv[2]); p.settings['min_quality']=27; p.dirty=True; "
                   "RecoveryStore(sys.argv[1]).write(p,1); os._exit(3)")
-            result=subprocess.run([sys.executable,'-c',code,directory,str(original)],cwd=Path(__file__).parent)
+            result=subprocess.run([sys.executable,'-c',code,directory,str(original)],cwd=Path(__file__).resolve().parents[1]/'src')
             self.assertEqual(result.returncode,3)
             store=RecoveryStore(directory);candidates=store.candidates();self.assertEqual(len(candidates),1)
             path=candidates[0][1];recovered=store.load(path)

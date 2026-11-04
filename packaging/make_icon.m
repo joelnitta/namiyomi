@@ -1,5 +1,6 @@
 // Deterministic typography, using the system font without distributing it.
-// clang -fno-modules -framework AppKit -framework CoreText make_icon.m -o /tmp/namiyomi-make-icon
+// Run from the repository root:
+// clang -fno-modules -framework AppKit -framework CoreText packaging/make_icon.m -o /tmp/namiyomi-make-icon
 // /tmp/namiyomi-make-icon assets
 #import <AppKit/AppKit.h>
 #import <CoreText/CoreText.h>

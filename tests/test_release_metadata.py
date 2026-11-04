@@ -6,7 +6,7 @@ from app_info import APP_NAME,APP_VERSION
 
 class CitationTests(unittest.TestCase):
     def test_citation_title_author_version_and_repository_are_consistent(self):
-        root=Path(__file__).resolve().parent
+        root=Path(__file__).resolve().parents[1]
         title='Namiyomi: Sanger chromatogram review and contig assembly'
         url='https://github.com/yoneoka-katsuhiro/namiyomi'
         cff=(root/'CITATION.cff').read_text(encoding='utf-8')

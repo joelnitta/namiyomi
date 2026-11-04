@@ -1,13 +1,14 @@
-# Build on Apple Silicon with: python -m PyInstaller namiyomi.spec
+# Build on Apple Silicon with: python -m PyInstaller packaging/namiyomi.spec
 from pathlib import Path
 import runpy
 import os
 
-root = Path(SPECPATH)
-app_info = runpy.run_path(str(root / 'app_info.py'))
+root = Path(SPECPATH).parent
+source = root / 'src'
+app_info = runpy.run_path(str(source / 'app_info.py'))
 analysis = Analysis(
-    [str(root / 'app.py')],
-    pathex=[str(root)],
+    [str(source / 'app.py')],
+    pathex=[str(source)],
     binaries=[(str(root / 'assets' / 'libnamiyomi-menus.dylib'),'assets')],
     # tkinterdnd2's installed hook selects the macOS/Tcl binaries automatically.
     datas=[(str(root/name),'.') for name in ('LICENSE.txt','CITATION.cff','CITATION.txt')],

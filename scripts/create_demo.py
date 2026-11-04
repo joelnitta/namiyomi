@@ -12,7 +12,7 @@ import random
 import struct
 import sys
 
-sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'src'))
 from core import Project
 from Bio.Seq import Seq
 

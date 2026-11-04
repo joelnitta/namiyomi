@@ -22,7 +22,7 @@ from trace_plot import trace_samples
 from app_info import APP_NAME, APP_VERSION, DEVELOPER, LOCATION
 from sequence_find import find_matches,consensus_coordinates,ordered_entries,validate_find_settings
 from preferences import ConfirmationPreferences
-from platform_support import context_menu_bindings,menu_accelerator,shortcut_label
+from platform_support import context_menu_bindings,menu_accelerator,shortcut_label,resource_root
 
 COLORS={'A':'#008234','C':'#1559c5','G':'#161616','T':'#d1272c'}
 MONO_FAMILY='Consolas' if sys.platform=='win32' else 'Menlo'
@@ -114,7 +114,7 @@ class Editor(TkinterDnD.Tk):
     def __init__(self,project=None,allow_recovery=True):
         super().__init__()
         if sys.platform=='win32':
-            icon=Path(__file__).resolve().parent/'assets'/'namiyomi.ico'
+            icon=resource_root()/'assets'/'namiyomi.ico'
             if icon.is_file():self.iconbitmap(default=str(icon))
         self.title(f'{APP_NAME} ver {APP_VERSION}');self.geometry('1250x810');self.minsize(1000,650)
         self.project=project or Project();self.undo_stack=[];self.redo_stack=[]
@@ -1551,7 +1551,7 @@ class Editor(TkinterDnD.Tk):
         messagebox.showinfo('Developer',f'{APP_NAME} ver {APP_VERSION}\n\n{DEVELOPER}\n{LOCATION}')
 
     def license_dialog(self):
-        root=Path(getattr(sys,'_MEIPASS',Path(__file__).resolve().parent))
+        root=resource_root()
         try:notice='\n\n'.join((root/name).read_text(encoding='utf-8') for name in ('CITATION.txt','LICENSE.txt'))
         except OSError as exc:messagebox.showerror('License and Citation',str(exc));return
         window,body=self.panel('License and Citation');window.resizable(True,True)

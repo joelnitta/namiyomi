@@ -7,7 +7,8 @@ param(
 # not install dependencies, modify execution policy, or request administrator access.
 $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
-$sourceDirectory = $PSScriptRoot
+$packagingDirectory = $PSScriptRoot
+$sourceDirectory = Split-Path $packagingDirectory -Parent
 $buildTemporary = $null
 $oldRecoveryDirectory = $env:NAMIYOMI_RECOVERY_DIR
 $oldPreferencesPath = $env:NAMIYOMI_PREFERENCES_PATH
@@ -24,7 +25,7 @@ try {
     if (-not (Test-Path -LiteralPath (Join-Path $sourceDirectory "assets/namiyomi.ico"))) {
         throw "The Windows icon is missing."
     }
-    $version = (& $Python -c "from app_info import APP_VERSION; print(APP_VERSION)").Trim()
+    $version = (& $Python -c "import runpy; print(runpy.run_path('src/app_info.py')['APP_VERSION'])").Trim()
     if ($LASTEXITCODE -ne 0 -or $version -notmatch '^\d+\.\d+\.\d+$') { throw "Invalid version" }
     $outputPath = if ([System.IO.Path]::IsPathRooted($OutputDirectory)) {
         [System.IO.Path]::GetFullPath($OutputDirectory)
@@ -38,17 +39,17 @@ try {
     [System.IO.Directory]::CreateDirectory($buildTemporary) | Out-Null
     $env:NAMIYOMI_RECOVERY_DIR = Join-Path $buildTemporary "Recovery"
     $env:NAMIYOMI_PREFERENCES_PATH = Join-Path $buildTemporary "preferences.json"
-    Invoke-Python -m unittest discover -q
+    Invoke-Python scripts/run_tests.py
     $sourceReport = Join-Path $buildTemporary "source-smoke.json"
     try {
-        Invoke-Python app.py --smoke-test $sourceReport
+        Invoke-Python src/app.py --smoke-test $sourceReport
     } catch {
         if (Test-Path -LiteralPath $sourceReport) { Get-Content -LiteralPath $sourceReport -Raw | Write-Output }
         throw
     }
-    Invoke-Python -m PyInstaller --noconfirm --clean --distpath (Join-Path $buildTemporary "dist") --workpath (Join-Path $buildTemporary "work") namiyomi-windows.spec
+    Invoke-Python -m PyInstaller --noconfirm --clean --distpath (Join-Path $buildTemporary "dist") --workpath (Join-Path $buildTemporary "work") (Join-Path $packagingDirectory "namiyomi-windows.spec")
     $applicationDirectory = Join-Path $buildTemporary "dist/namiyomi"
-    Invoke-Python collect_licenses.py $applicationDirectory
+    Invoke-Python (Join-Path $packagingDirectory "collect_licenses.py") $applicationDirectory
     $stageDirectory = Join-Path $buildTemporary "package/namiyomi"
     [System.IO.Directory]::CreateDirectory((Split-Path $stageDirectory -Parent)) | Out-Null
     Copy-Item -LiteralPath $applicationDirectory -Destination $stageDirectory -Recurse

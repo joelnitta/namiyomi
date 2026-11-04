@@ -1,13 +1,15 @@
 #!/bin/zsh
 # Private staging, fail-closed signing/notarization; original AB1s are untouched.
 set -euo pipefail
-APP_DIR="$(cd "$(dirname "$0")" && pwd)"
+PACKAGING_DIR="$(cd "$(dirname "$0")" && pwd)"
+APP_DIR="$(cd "$PACKAGING_DIR/.." && pwd)"
+SOURCE_DIR="$APP_DIR/src"
 BUILD_PYTHON="${SANGER_PYTHON:-python3}"
 RELEASE_DIR="$APP_DIR/release"
 APPLICATIONS_DIR="${SANGER_APP_DIR:-$HOME/Applications}"
-APP_VERSION="$("$BUILD_PYTHON" -c 'import runpy,sys; print(runpy.run_path(sys.argv[1])["APP_VERSION"])' "$APP_DIR/app_info.py")"
-APP_NAME="$("$BUILD_PYTHON" -c 'import runpy,sys; print(runpy.run_path(sys.argv[1])["APP_NAME"])' "$APP_DIR/app_info.py")"
-APP_BUNDLE_ID="$("$BUILD_PYTHON" -c 'import runpy,sys; print(runpy.run_path(sys.argv[1])["APP_BUNDLE_ID"])' "$APP_DIR/app_info.py")"
+APP_VERSION="$("$BUILD_PYTHON" -c 'import runpy,sys; print(runpy.run_path(sys.argv[1])["APP_VERSION"])' "$SOURCE_DIR/app_info.py")"
+APP_NAME="$("$BUILD_PYTHON" -c 'import runpy,sys; print(runpy.run_path(sys.argv[1])["APP_NAME"])' "$SOURCE_DIR/app_info.py")"
+APP_BUNDLE_ID="$("$BUILD_PYTHON" -c 'import runpy,sys; print(runpy.run_path(sys.argv[1])["APP_BUNDLE_ID"])' "$SOURCE_DIR/app_info.py")"
 APP_BUNDLE="$APP_NAME.app"
 SIGNING_IDENTITY="${NAMIYOMI_CODESIGN_IDENTITY:-}"
 NOTARY_PROFILE="${NAMIYOMI_NOTARY_PROFILE:-}"
@@ -20,7 +22,7 @@ fi
 if [[ -n "$SIGNING_IDENTITY" ]]; then
   # Only an exact, unique, usable Developer ID Application identity is valid.
   # Resolve to its fingerprint so codesign cannot select an ambiguous name.
-  SIGNING_IDENTITY="$(security find-identity -v -p codesigning | "$BUILD_PYTHON" "$APP_DIR/signing_release.py" resolve-identity "$SIGNING_IDENTITY")"
+  SIGNING_IDENTITY="$(security find-identity -v -p codesigning | "$BUILD_PYTHON" "$PACKAGING_DIR/signing_release.py" resolve-identity "$SIGNING_IDENTITY")"
   export NAMIYOMI_CODESIGN_IDENTITY="$SIGNING_IDENTITY"
 fi
 # Do not replace a running app, even if the caller forgets to close it.
@@ -37,10 +39,11 @@ cleanup() {
 }
 trap cleanup EXIT
 export PYINSTALLER_STRICT_BUNDLE_CODESIGN_ERROR=1
-clang -fno-modules -dynamiclib -framework AppKit "$APP_DIR/native_menus.m" -o "$APP_DIR/assets/libnamiyomi-menus.dylib"
-"$BUILD_PYTHON" -m PyInstaller --noconfirm --distpath "$STAGE_DIR/dist" --workpath "$STAGE_DIR/work" "$APP_DIR/namiyomi.spec"
+"$BUILD_PYTHON" "$APP_DIR/scripts/run_tests.py"
+clang -fno-modules -dynamiclib -framework AppKit "$SOURCE_DIR/native_menus.m" -o "$APP_DIR/assets/libnamiyomi-menus.dylib"
+"$BUILD_PYTHON" -m PyInstaller --noconfirm --distpath "$STAGE_DIR/dist" --workpath "$STAGE_DIR/work" "$PACKAGING_DIR/namiyomi.spec"
 BUILT_APP="$STAGE_DIR/dist/$APP_BUNDLE"
-"$BUILD_PYTHON" "$APP_DIR/collect_licenses.py" "$BUILT_APP"
+"$BUILD_PYTHON" "$PACKAGING_DIR/collect_licenses.py" "$BUILT_APP"
 # Embedded Mach-O files were signed by PyInstaller. Re-seal the outer bundle
 # after adding text notices, without a blind deep re-sign.
 if [[ -n "$SIGNING_IDENTITY" ]]; then
@@ -63,11 +66,11 @@ if [[ "$NOTARIZE" == 1 ]]; then
   xcrun notarytool submit "$STAGE_DIR/notarize.zip" --keychain-profile "$NOTARY_PROFILE" --wait --output-format json > "$RELEASE_DIR/notarization-result.json" || SUBMIT_STATUS=$?
   # Fetch the service log even when --wait returned Invalid/nonzero. A successful
   # upload or an Accepted result alone is not sufficient release evidence.
-  SUBMISSION_ID="$("$BUILD_PYTHON" "$APP_DIR/signing_release.py" submission-id "$RELEASE_DIR/notarization-result.json")"
+  SUBMISSION_ID="$("$BUILD_PYTHON" "$PACKAGING_DIR/signing_release.py" submission-id "$RELEASE_DIR/notarization-result.json")"
   NOTARY_LOG="$RELEASE_DIR/notarization-$SUBMISSION_ID-log.json"
   xcrun notarytool log "$SUBMISSION_ID" --keychain-profile "$NOTARY_PROFILE" "$STAGE_DIR/notarization-log.json"
   mv "$STAGE_DIR/notarization-log.json" "$NOTARY_LOG"
-  "$BUILD_PYTHON" "$APP_DIR/signing_release.py" check-notarization "$RELEASE_DIR/notarization-result.json" "$NOTARY_LOG"
+  "$BUILD_PYTHON" "$PACKAGING_DIR/signing_release.py" check-notarization "$RELEASE_DIR/notarization-result.json" "$NOTARY_LOG"
   if [[ "$SUBMIT_STATUS" != 0 ]]; then
     printf '%s\n' 'notarytool submit returned an error; result and service log are saved. Do not distribute.'
     exit 1

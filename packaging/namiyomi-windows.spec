@@ -5,11 +5,12 @@ import sys
 
 if sys.platform != 'win32':
     raise RuntimeError('Build this spec with 64-bit Python on Windows.')
-root = Path(SPECPATH)
-info = runpy.run_path(str(root / 'app_info.py'))
+root = Path(SPECPATH).parent
+source = root/'src'
+info = runpy.run_path(str(source / 'app_info.py'))
 
 analysis = Analysis(
-    [str(root / 'app.py')], pathex=[str(root)], binaries=[],
+    [str(source / 'app.py')], pathex=[str(source)], binaries=[],
     # tkinterdnd2's PyInstaller hook chooses the Windows x64 Tcl/DND libraries.
     datas=[(str(root/name), '.') for name in ('LICENSE.txt', 'CITATION.cff', 'CITATION.txt')]
           + [(str(root/'assets'/'namiyomi.ico'), 'assets')],

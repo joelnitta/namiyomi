@@ -1,4 +1,4 @@
-#include "../native_menus.m"
+#include "../../src/native_menus.m"
 #include <assert.h>
 #include <stdio.h>
 int main(void) {

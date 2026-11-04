@@ -2,6 +2,7 @@
 import ctypes
 import sys
 from pathlib import Path
+from platform_support import resource_root
 
 _library=None
 
@@ -9,7 +10,7 @@ _library=None
 def configure():
     global _library
     if sys.platform!='darwin':return
-    path=Path(__file__).parent/'assets'/'libnamiyomi-menus.dylib'
+    path=resource_root()/'assets'/'libnamiyomi-menus.dylib'
     if not path.exists():return
     _library=ctypes.CDLL(str(path))
     _library.namiyomi_configure_menus.argtypes=[]
