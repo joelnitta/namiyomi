@@ -109,7 +109,9 @@ namiyomi is released under the [MIT License](LICENSE.txt). Bundled dependencies 
 
 Suggested citation:
 
-> Yoneoka, Katsuhiro (2026). *namiyomi* (version 0.0.1) [Computer software]. https://github.com/yoneoka-katsuhiro/namiyomi
+> Yoneoka, K. (2026). *Namiyomi: Sanger chromatogram review and contig assembly* (Version 0.0.1) [Computer software]. GitHub. https://github.com/yoneoka-katsuhiro/namiyomi
+
+In text, cite **Yoneoka (2026)** or **(Yoneoka, 2026)**.
 
 Machine-readable metadata is available in [CITATION.cff](CITATION.cff). Record the software version, processing settings, and manual review decisions when describing your workflow. No DOI has been assigned.
 

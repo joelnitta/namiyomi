@@ -1,6 +1,9 @@
 Suggested citation:
-Yoneoka, Katsuhiro (2026). namiyomi (version 0.0.1) [Computer software].
-Mishima, Shizuoka, Japan.
+Yoneoka, K. (2026). Namiyomi: Sanger chromatogram review and contig assembly
+(Version 0.0.1) [Computer software]. GitHub.
+https://github.com/yoneoka-katsuhiro/namiyomi
+
+In-text citation: Yoneoka (2026) or (Yoneoka, 2026).
 
 Repository: https://github.com/yoneoka-katsuhiro/namiyomi
 CITATION.cff provides machine-readable citation metadata. No DOI has been

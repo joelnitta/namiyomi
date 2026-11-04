@@ -109,7 +109,9 @@ namiyomiは、少数のサンガーリードを波形で確認し、コンセン
 
 引用例：
 
-> Yoneoka, Katsuhiro (2026). *namiyomi* (version 0.0.1) [Computer software]. https://github.com/yoneoka-katsuhiro/namiyomi
+> Yoneoka, K. (2026). *Namiyomi: Sanger chromatogram review and contig assembly* (Version 0.0.1) [Computer software]. GitHub. https://github.com/yoneoka-katsuhiro/namiyomi
+
+本文中では **Yoneoka (2026)**、括弧内では **(Yoneoka, 2026)** と表記します。
 
 [CITATION.cff](CITATION.cff)にも引用情報を記載しています。解析方法を記す際は、バージョン、処理条件、手動確認の判断も記録してください。DOIは未取得です。
 
