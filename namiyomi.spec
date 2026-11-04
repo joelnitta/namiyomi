@@ -21,7 +21,7 @@ analysis = Analysis(
 # readline dependency as data, even when the Python module is excluded. No app
 # Mach-O links against it; do not distribute this unused optional library.
 def needed(entry):
-    return not any(Path(str(part)).name.startswith('libreadline') for part in entry[:2])
+    return not any(Path(str(part)).name.startswith(('libreadline','libhistory')) for part in entry[:2])
 analysis.binaries=[entry for entry in analysis.binaries if needed(entry)]
 analysis.datas=[entry for entry in analysis.datas if needed(entry)]
 archive = PYZ(analysis.pure)

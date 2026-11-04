@@ -40,7 +40,12 @@ try {
     $env:NAMIYOMI_PREFERENCES_PATH = Join-Path $buildTemporary "preferences.json"
     Invoke-Python -m unittest discover -q
     $sourceReport = Join-Path $buildTemporary "source-smoke.json"
-    Invoke-Python app.py --smoke-test $sourceReport
+    try {
+        Invoke-Python app.py --smoke-test $sourceReport
+    } catch {
+        if (Test-Path -LiteralPath $sourceReport) { Get-Content -LiteralPath $sourceReport -Raw | Write-Output }
+        throw
+    }
     Invoke-Python -m PyInstaller --noconfirm --clean --distpath (Join-Path $buildTemporary "dist") --workpath (Join-Path $buildTemporary "work") namiyomi-windows.spec
     $applicationDirectory = Join-Path $buildTemporary "dist/namiyomi"
     Invoke-Python collect_licenses.py $applicationDirectory
@@ -71,10 +76,12 @@ try {
         throw "The extracted executable did not finish its startup check."
     }
     if ($process.ExitCode -ne 0 -or -not (Test-Path -LiteralPath $binaryReport)) {
+        if (Test-Path -LiteralPath $binaryReport) { Get-Content -LiteralPath $binaryReport -Raw | Write-Output }
         throw "The extracted executable startup check failed."
     }
     $report = Get-Content -LiteralPath $binaryReport -Raw | ConvertFrom-Json
     if ($report.status -ne "passed" -or $report.windowing_system -ne "win32") {
+        Get-Content -LiteralPath $binaryReport -Raw | Write-Output
         throw "The extracted executable returned an invalid startup report."
     }
     Move-Item -LiteralPath $stagedZipPath -Destination $zipPath

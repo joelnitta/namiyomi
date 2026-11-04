@@ -82,7 +82,7 @@ Right-click the sidebar for common actions. Double-click a sequence name to rena
 
 ## Choosing a tool
 
-Several established applications also handle Sanger data. The difference is the workflow and scope, not that namiyomi is the only free or cross-platform option.
+Several established applications also handle Sanger data. The difference is the workflow and scope, not that namiyomi is the only free or cross-platform option. See the [detailed comparison](docs/COMPARISON.md) for ChromasPro, Geneious Prime, and related GitHub projects, including SeqTrace, sangeranalyseR, and Tracy. The comparison separates documented features from interface preferences; no speed or accuracy advantage is claimed.
 
 | Application | License / cost model | Platforms listed by the developer | Main scope |
 | --- | --- | --- | --- |
