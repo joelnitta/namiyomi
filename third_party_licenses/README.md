@@ -6,6 +6,11 @@ separately under MIT. A notice here does not imply that every platform bundles
 every library. Build-specific versions and package notices are recorded in the
 application's `ThirdPartyNotices/manifest.json`.
 
+Windows packages also include the actual Python installation's complete
+`LICENSE.txt` under `ThirdPartyNotices/python-runtime/`. It contains additional
+conditions for the Microsoft and other runtimes in that binary build; the
+upstream CPython source license below is not a substitute for that file.
+
 - [Python 3.12 LICENSE](https://github.com/python/cpython/blob/3.12/LICENSE)
 - [Tcl 8.6.13 terms](https://github.com/tcltk/tcl/blob/core-8-6-13/license.terms)
 - [Tk 8.6.13 terms](https://github.com/tcltk/tk/blob/core-8-6-13/license.terms)

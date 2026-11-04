@@ -41,6 +41,8 @@ def verify(path):
                 raise ValueError('Expected a Windows x86-64 executable.')
             platform='Windows x64';notices='namiyomi/ThirdPartyNotices/'
             archive.getinfo('namiyomi/_internal/python312.dll')
+            if b'Microsoft' not in archive.read(notices+'python-runtime/LICENSE.txt'):
+                raise ValueError('The full Windows Python/CRT license is missing.')
         else:
             root='namiyomi/namiyomi.app/Contents/'
             info=plistlib.loads(archive.read(root+'Info.plist'))

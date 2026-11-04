@@ -19,6 +19,8 @@ namiyomiは、日常的なサンガーシーケンスの確認作業に用途を
 
 [Releases](https://github.com/yoneoka-katsuhiro/namiyomi/releases)から使用するOSのZIPをダウンロードしてください。Pythonと必要なライブラリは同梱しているため、別途インストールする必要はありません。
 
+圧縮した配布ファイルは、実行環境と合成デモを含めて**macOS版が約41 MiB、Windows版が約26 MiB**です。これはダウンロード容量であり、メモリ使用量や処理速度の比較値ではありません。
+
 **macOS：** ZIPを展開して`namiyomi`フォルダを開き、`namiyomi.app`を起動します。必要に応じてアプリをApplicationsフォルダへ移しても構いません。デモを試す場合は、別に入っている`demo`フォルダも残してください。未公証の開発版のため、Macで警告や起動制限が出る場合があります。Appleの公証を受けたアプリではありません。[Developer IDについてのApple公式説明](https://developer.apple.com/developer-id/)も確認し、実行するかどうかを判断してください。インストールのためにシステムのセキュリティ保護を無効にしないでください。
 
 **Windows：** `namiyomi`フォルダ全体を展開し、`namiyomi.exe`を開きます。`_internal`フォルダは実行ファイルの隣に置き、実行ファイルだけを取り出さないでください。Authenticode署名はないため、Windowsでセキュリティ警告が出る場合があります。Windows用の自動ビルド・起動確認にはWindows Server 2022を使用します。各実行の結果は[Actions](https://github.com/yoneoka-katsuhiro/namiyomi/actions)で確認できますが、Windows 10/11実機での一連の操作確認に代わるものではありません。

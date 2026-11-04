@@ -16,6 +16,17 @@ def collect(app):
     else:raise ValueError('Expected a built macOS .app or Windows PyInstaller application folder.')
     output.mkdir(parents=True,exist_ok=True)
     manifest=[]
+    if (app/'namiyomi.exe').is_file():
+        # Windows Python appends binary-runtime redistribution terms (including
+        # the Microsoft CRT) to its installed LICENSE. The source LICENSE alone
+        # does not contain those conditions.
+        installed_license=Path(sys.base_prefix)/'LICENSE.txt'
+        if not installed_license.is_file() or 'Microsoft' not in installed_license.read_text(encoding='utf-8'):
+            raise ValueError('The full Windows Python runtime LICENSE, including CRT terms, is required.')
+        target=output/'python-runtime'/'LICENSE.txt';target.parent.mkdir(parents=True,exist_ok=True)
+        shutil.copyfile(installed_license,target)
+        manifest.append({'package':'python-windows-runtime','version':sys.version.split()[0],
+                         'notices':['python-runtime/LICENSE.txt']})
     for name in ('biopython','numpy','tkinterdnd2','pyinstaller','PyYAML'):
         try:dist=metadata.distribution(name)
         except metadata.PackageNotFoundError:continue
