@@ -26,7 +26,7 @@ class PlatformSupportTests(unittest.TestCase):
             home=Path(directory)/'home';local=Path(directory)/'local'
             with patch('platform_support.sys.platform','win32'), \
                  patch('platform_support.Path.home',return_value=home), \
-                 patch.dict(os.environ,{'LOCALAPPDATA':str(local)}):
+                 patch.dict(os.environ,{'LOCALAPPDATA':str(local),'NAMIYOMI_RECOVERY_DIR':''}):
                 self.assertEqual(application_support_directory(),local/'namiyomi')
                 self.assertEqual(RecoveryStore().directory,(local/'namiyomi/Recovery').resolve())
                 with patch.dict(os.environ,{'LOCALAPPDATA':''}):

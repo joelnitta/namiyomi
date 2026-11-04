@@ -14,7 +14,7 @@ from platform_support import application_support_directory, windows_process_aliv
 class RecoveryStore:
     def __init__(self, directory=None):
         default=application_support_directory()/'Recovery'
-        self.directory=Path(directory or os.environ.get('NAMIYOMI_RECOVERY_DIR',default)).resolve()
+        self.directory=Path(directory or os.environ.get('NAMIYOMI_RECOVERY_DIR') or default).resolve()
         self.path=self.directory/f'{uuid.uuid4().hex}.recovery.json'
         self.last_revision=None
 
