@@ -2,6 +2,11 @@ name: Build and verify
 
 on:
   push:
+    paths-ignore:
+      - 'README*.md'
+      - 'DISTRIBUTION.md'
+      - 'docs/images/**'
+      - 'docs/RELEASE_NOTES.md'
   pull_request:
   workflow_dispatch:
 
@@ -26,7 +31,7 @@ jobs:
           cache: pip
           cache-dependency-path: requirements-build.txt
       - name: Install pinned build dependencies
-        run: python -m pip install --only-binary=:all: -r requirements-build.txt
+        run: 'python -m pip install --only-binary=:all: -r requirements-build.txt'
       - name: Test, build, extract, and launch the packaged application
         shell: pwsh
         run: ./build_windows.ps1 -Python python
@@ -51,5 +56,5 @@ jobs:
           python-version: '3.12'
           cache: pip
           cache-dependency-path: requirements-build.txt
-      - run: python -m pip install --only-binary=:all: -r requirements-build.txt
+      - run: 'python -m pip install --only-binary=:all: -r requirements-build.txt'
       - run: python -m unittest discover -q

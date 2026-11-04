@@ -17,6 +17,13 @@ analysis = Analysis(
     excludes=['matplotlib', 'pandas', 'scipy', 'IPython', 'pytest', 'readline'],
     noarchive=False,
 )
+# NumPy's Conda hook follows package metadata and may copy Python's unrelated
+# readline dependency as data, even when the Python module is excluded. No app
+# Mach-O links against it; do not distribute this unused optional library.
+def needed(entry):
+    return not any(Path(str(part)).name.startswith('libreadline') for part in entry[:2])
+analysis.binaries=[entry for entry in analysis.binaries if needed(entry)]
+analysis.datas=[entry for entry in analysis.datas if needed(entry)]
 archive = PYZ(analysis.pure)
 executable = EXE(
     archive, analysis.scripts, [],
