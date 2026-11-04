@@ -4,7 +4,14 @@
 
 namiyomiは、日常的なサンガーシーケンスの確認作業に用途を絞ったデスクトップアプリです。コンセンサス配列と、その根拠となるクロマトグラムを同じ画面で確認できます。配列データは端末内で処理され、外部には送信されません。アプリとソースコードはMITライセンスで無償公開しています。
 
-[ダウンロード](https://github.com/yoneoka-katsuhiro/namiyomi/releases) · [English](README.md) · [ビルド・配布について](DISTRIBUTION.md)
+## ここからアプリをダウンロードできます
+
+- **[macOS版をダウンロード — Apple Silicon、macOS 15以降](https://github.com/yoneoka-katsuhiro/namiyomi/releases/download/v0.0.1/namiyomi-0.0.1-macOS-arm64-development.zip)**
+- **[Windows版をダウンロード — Windows 10/11 x64、試験版](https://github.com/yoneoka-katsuhiro/namiyomi/releases/download/v0.0.1/namiyomi-0.0.1-Windows-x64.zip)**
+
+このZIPに、すぐに起動できるアプリが入っています。Pythonのインストールは不要です。リポジトリ内のソースやテストを個別にダウンロードする必要はありません。
+
+[リリース情報](https://github.com/yoneoka-katsuhiro/namiyomi/releases/tag/v0.0.1) · [English](README.md) · [ビルド・配布について](DISTRIBUTION.md)
 
 ![コンセンサス配列と、位置を揃えて表示した元リードのクロマトグラム。macOS版の画面。表示データは人工的に生成したものです。](docs/images/namiyomi-contig-macos.png)
 

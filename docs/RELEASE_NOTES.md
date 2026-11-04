@@ -2,6 +2,13 @@
 
 namiyomi is a free desktop editor for routine Sanger sequencing work. It brings AB1 chromatograms, read trimming, selected-read assembly, consensus editing, and FASTA export into one workspace. All sequence processing takes place locally.
 
+## Download namiyomi ver 0.0.1 here
+
+- [Download for macOS — Apple Silicon, macOS 15+](https://github.com/yoneoka-katsuhiro/namiyomi/releases/download/v0.0.1/namiyomi-0.0.1-macOS-arm64-development.zip)
+- [Download for Windows — Windows 10/11 x64, experimental](https://github.com/yoneoka-katsuhiro/namiyomi/releases/download/v0.0.1/namiyomi-0.0.1-Windows-x64.zip)
+
+These are the ready-to-run applications. You do not need the repository's source-code ZIP or a separate Python installation.
+
 ![namiyomi's consensus and aligned chromatograms on macOS. The data are synthetic.](https://raw.githubusercontent.com/yoneoka-katsuhiro/namiyomi/main/docs/images/namiyomi-contig-macos.png)
 
 *The consensus stays above its supporting chromatograms so each call can be checked against the original traces. This example uses the synthetic demonstration data supplied with namiyomi.*
@@ -31,7 +38,7 @@ Extract the ZIP before opening the app. A separate Python installation is not re
 
 **macOS signing:** this is an ad-hoc signed development package, not Developer ID signed or Apple notarized. macOS may warn about or block it. **Windows signing:** the executable is not Authenticode signed and may also trigger security warnings. Do not disable system security protections to install either package.
 
-**Windows verification:** full hands-on testing on a physical Windows PC has not been completed, and errors may occur. The automated workflow uses Windows Server 2022 for build and startup checks; see [Actions](https://github.com/yoneoka-katsuhiro/namiyomi/actions) for the outcome of the relevant run. These checks do not establish that the full interactive workflow has been verified on Windows 10/11.
+**Windows verification:** full hands-on testing on a physical Windows PC has not been completed, and errors may occur. The [release build](https://github.com/yoneoka-katsuhiro/namiyomi/actions/runs/41824494464) passed 161 tests on Windows Server 2022 (one platform-specific test skipped), source and packaged-GUI startup checks, and archive verification. These checks do not establish that the full interactive workflow has been verified on Windows 10/11.
 
 ## Before using your own data
 

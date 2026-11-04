@@ -4,7 +4,14 @@ A focused desktop editor for Sanger sequencing: inspect AB1 chromatograms, trim 
 
 namiyomi keeps the sequence and its supporting traces in one workspace. It is designed for routine, small-scale Sanger work rather than as an integrated bioinformatics suite. All sequence processing takes place locally. The application and source code are free under the MIT License.
 
-[Download](https://github.com/yoneoka-katsuhiro/namiyomi/releases) · [日本語](README-ja.md) · [Build and distribution guide](DISTRIBUTION.md)
+## Download namiyomi here
+
+- **[Download for macOS — Apple Silicon, macOS 15+](https://github.com/yoneoka-katsuhiro/namiyomi/releases/download/v0.0.1/namiyomi-0.0.1-macOS-arm64-development.zip)**
+- **[Download for Windows — Windows 10/11 x64, experimental](https://github.com/yoneoka-katsuhiro/namiyomi/releases/download/v0.0.1/namiyomi-0.0.1-Windows-x64.zip)**
+
+These ZIPs contain the ready-to-run application. No Python installation is required. The files in the repository are for developers; you do not need to download them to use namiyomi.
+
+[Release notes](https://github.com/yoneoka-katsuhiro/namiyomi/releases/tag/v0.0.1) · [日本語](README-ja.md) · [Build and distribution guide](DISTRIBUTION.md)
 
 ![The consensus sequence above its aligned source chromatograms in namiyomi on macOS. The displayed data are synthetic.](docs/images/namiyomi-contig-macos.png)
 
