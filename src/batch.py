@@ -216,6 +216,14 @@ def summary_tsv(summary):
     return '\n'.join(lines) + '\n'
 
 
+def scan_folder(input_dir, sheet=None):
+    """Dry run: count AB1 files and show the planned groups. Writes nothing."""
+    input_dir = Path(input_dir).resolve()
+    paths = find_ab1(input_dir)
+    plan = plan_groups(paths, read_sheet(sheet) if sheet else None)
+    return dict(dry_run=True, input=str(input_dir), ab1_files=len(paths), plan=plan.to_dict())
+
+
 def run_batch(input_dir, output_dir, *, sheet=None, settings=None, trim=None, allow_single=False,
               dry_run=False):
     """Process a folder of AB1 files. Originals are never modified.
@@ -225,10 +233,10 @@ def run_batch(input_dir, output_dir, *, sheet=None, settings=None, trim=None, al
     input_dir, output_dir = Path(input_dir).resolve(), Path(output_dir).resolve()
     if output_dir == input_dir:
         raise ValueError('Choose an output folder different from the input folder.')
+    if dry_run:
+        return scan_folder(input_dir, sheet)
     paths = find_ab1(input_dir)
     plan = plan_groups(paths, read_sheet(sheet) if sheet else None)
-    if dry_run:
-        return dict(dry_run=True, input=str(input_dir), ab1_files=len(paths), plan=plan.to_dict())
     if not paths:
         raise ValueError(f'No .ab1 files found in {input_dir}')
 
