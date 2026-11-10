@@ -2,7 +2,7 @@
 
 A focused desktop editor for Sanger sequencing: inspect AB1 chromatograms, trim read ends, assemble selected reads, review the consensus, and export FASTA.
 
-namiyomi keeps the sequence and its supporting traces in one workspace. It is designed for routine, small-scale Sanger work rather than as an integrated bioinformatics suite. All sequence processing takes place locally. The application and source code are free under the MIT License.
+namiyomi keeps the sequence and its supporting traces in one workspace. It is designed for routine, small-scale Sanger work rather than as an integrated bioinformatics suite. Its features are **deliberately limited to what this work needs**, so there is little to configure or learn before you start. All sequence processing takes place locally. The application and source code are free under the MIT License.
 
 ## Download namiyomi here
 
@@ -95,7 +95,7 @@ Several established applications also handle Sanger data. The difference is the 
 
 | Application | License / cost model | Platforms listed by the developer | Main scope |
 | --- | --- | --- | --- |
-| **namiyomi** | **Free**; MIT source code. No license fee, activation, or subscription. | macOS; experimental Windows package | **Free AB1 review and contig building:** automatic batch contigs (AUTO groups reads by filename prefix) and manual contigs from selected reads, consensus editing above the aligned traces, and FASTA export in one focused workspace. |
+| **namiyomi** | **Free**; MIT source code. No license fee, activation, or subscription. | macOS; experimental Windows package | **Deliberately minimal and free:** only the steps from AB1 to FASTA, in one window with few settings. Automatic batch contigs (AUTO, one fixed filename-prefix rule) and manual contigs from selected reads, consensus editing above the aligned traces, and FASTA export. |
 | [Sequencher](https://genecodes.com/sequencher-features/sanger-sequencing) | Commercial; [perpetual licenses](https://genecodes.com/support/faq), 6- and 12-month project licenses, and a 15-day evaluation | Windows and Mac; its FAQ states that version 5.4.6 is not compatible with 64-bit macOS and that a 64-bit Mac version is in beta | Sanger assembly, trimming, ambiguity and heterozygote review, and batch assembly with [Assemble by Name](https://genecodes.com/sequencher-features/automated-analysis), plus NGS features. |
 | [CodonCode Aligner](https://codoncode.com/aligner/features.htm) | Commercial; [perpetual licenses](https://codoncode.com/aligner/aligner_prices.htm) with optional annual maintenance; 30-day trial | [Windows 7–11 (64-bit), macOS 10.12+](https://codoncode.com/aligner/download.htm) | Sanger assembly and chromatogram editing, end clipping, Assemble by Name, heterozygote/mutation detection, and cloning tools. |
 | [Geneious Prime](https://www.geneious.com/tutorials/assembling-chromatograms) | Commercial; current [public plans](https://www.geneious.com/pricing) are annual subscriptions; trial available | Windows, macOS, Linux | A broad molecular-biology suite: Sanger trimming, assembly, chromatogram and consensus editing, Assemble by Name, and configurable workflows. |
@@ -104,7 +104,7 @@ Several established applications also handle Sanger data. The difference is the 
 | [ChromasPro](https://technelysium.com.au/wp/chromaspro/) | Commercial; trial available | Windows | Read assembly and graphical consensus editing, plus broader sequence-analysis tools. |
 | [UGENE](https://ugene.net/) | Free and open source | Windows, macOS, Linux | An integrated bioinformatics toolkit, including a Sanger editor and [CAP3 assembly integration](https://ugene.net/docs/extensions/cap3/). |
 
-Choose namiyomi when you want to review Sanger reads, build contigs automatically or from selected reads, and export a consensus without paying for a license or opening a larger analysis environment. Choose another tool when you need its broader analyses, more flexible batch rules, supported formats, established workflows, vendor support, or platform support. No performance or accuracy benchmark against these applications is claimed. Descriptions were checked against the developers' official documentation on 4 November 2026; Sequencher, CodonCode Aligner, and GENETYX / ATGC were added on 10 November 2026.
+Choose namiyomi when you want a deliberately minimal tool: review Sanger reads, build contigs automatically or from selected reads, and export a consensus, without learning a large analysis environment or paying for a license. Choose another tool when you need its broader analyses, more flexible batch rules, supported formats, established workflows, vendor support, or platform support. No performance or accuracy benchmark against these applications is claimed. Descriptions were checked against the developers' official documentation on 4 November 2026; Sequencher, CodonCode Aligner, and GENETYX / ATGC were added on 10 November 2026.
 
 ## Important limits and data handling
 

@@ -2,7 +2,7 @@
 
 **AB1の波形確認から、トリミング、コンティグ作成、配列編集、FASTA出力まで。**
 
-namiyomiは、日常的なサンガーシーケンスの確認作業に用途を絞ったデスクトップアプリです。コンセンサス配列と、その根拠となるクロマトグラムを同じ画面で確認できます。配列データは端末内で処理され、外部には送信されません。アプリとソースコードはMITライセンスで無償公開しています。
+namiyomiは、日常的なサンガーシーケンスの確認作業に用途を絞ったデスクトップアプリです。**機能はこの作業に必要な最小限に絞っている**ため、使い始める前に設定することや覚えることがほとんどありません。コンセンサス配列と、その根拠となるクロマトグラムを同じ画面で確認できます。配列データは端末内で処理され、外部には送信されません。アプリとソースコードはMITライセンスで無償公開しています。
 
 ## ここからアプリをダウンロードできます
 
@@ -95,7 +95,7 @@ AUTOは、各接頭辞が「同一個体の同一領域」を表す場合だけ�
 
 | ソフト | ライセンス・料金体系 | 開発元が案内するOS | 主な用途 |
 | --- | --- | --- | --- |
-| **namiyomi** | **無償**、MITライセンス。ライセンス料・認証・定期課金なし | macOS、Windows試験版 | **無償でAB1の確認からコンティグ作成まで**：ファイル名の接頭辞でまとめて一括作成する自動コンティグ（AUTO）と、選択リードからの手動コンティグ、波形を見ながらのコンセンサス編集、FASTA出力を1つの画面で。 |
+| **namiyomi** | **無償**、MITライセンス。ライセンス料・認証・定期課金なし | macOS、Windows試験版 | **必要最小限の機能に絞った無償ソフト**：AB1からFASTAまでの作業だけを、設定の少ない1つの画面で。ファイル名の接頭辞という1つのルールで一括作成する自動コンティグ（AUTO）と選択リードからの手動コンティグ、波形を見ながらのコンセンサス編集、FASTA出力。 |
 | [Sequencher](https://genecodes.com/sequencher-features/sanger-sequencing) | 有償。[買い切りライセンス](https://genecodes.com/support/faq)、6か月・12か月のプロジェクトライセンス、15日間の評価版 | Windows、Mac。FAQには、ver 5.4.6は64-bitのmacOSに非対応で、64-bit Mac版はベータ版と記載 | Sangerのアセンブリ、トリミング、曖昧な塩基やヘテロ接合の確認、[Assemble by Name](https://genecodes.com/sequencher-features/automated-analysis)による一括アセンブリ、NGS機能。 |
 | [CodonCode Aligner](https://codoncode.com/aligner/features.htm) | 有償。[買い切りライセンス](https://codoncode.com/aligner/aligner_prices.htm)と任意の年間保守、30日間の試用版 | [Windows 7～11（64-bit）、macOS 10.12以降](https://codoncode.com/aligner/download.htm) | Sangerのアセンブリと波形編集、末端トリミング、Assemble by Name、ヘテロ接合・変異検出、クローニング支援。 |
 | [Geneious Prime](https://www.geneious.com/tutorials/assembling-chromatograms) | 有償。現行の[公開プラン](https://www.geneious.com/pricing)は年額制、試用版あり | Windows、macOS、Linux | 分子生物学の統合環境。Sangerのトリミング、アセンブリ、波形・コンセンサス編集、Assemble by Name、ワークフロー。 |
@@ -104,7 +104,7 @@ AUTOは、各接頭辞が「同一個体の同一領域」を表す場合だけ�
 | [ChromasPro](https://technelysium.com.au/wp/chromaspro/) | 有償、試用版あり | Windows | リードのアセンブリとグラフィカルなコンセンサス編集に加え、各種配列解析。 |
 | [UGENE](https://ugene.net/) | 無償、オープンソース | Windows、macOS、Linux | 統合型のバイオインフォマティクス環境。Sanger editorと[CAP3連携](https://ugene.net/docs/extensions/cap3/)を含みます。 |
 
-namiyomiは、サンガーリードを波形で確認し、自動または選択したリードからコンティグを作り、コンセンサスを取り出す作業を、ライセンス料をかけずに行う用途を想定しています。より広い解析、柔軟な一括処理ルール、別のファイル形式、既存の検証済みワークフロー、開発元のサポートが必要な場合は、それに合うソフトを選んでください。他製品に対する速度・精度の優位性を主張する比較ではありません。比較表は2026年11月4日に各開発元の公式説明を確認して作成し、Sequencher、CodonCode Aligner、GENETYX / ATGCは2026年11月10日に追加しました。
+namiyomiは、機能を必要最小限に絞ったソフトです。サンガーリードを波形で確認し、自動または選択したリードからコンティグを作り、コンセンサスを取り出す作業を、大きな解析ソフトの操作を覚えることなく、ライセンス料もかけずに行えます。より広い解析、柔軟な一括処理ルール、別のファイル形式、既存の検証済みワークフロー、開発元のサポートが必要な場合は、それに合うソフトを選んでください。他製品に対する速度・精度の優位性を主張する比較ではありません。比較表は2026年11月4日に各開発元の公式説明を確認して作成し、Sequencher、CodonCode Aligner、GENETYX / ATGCは2026年11月10日に追加しました。
 
 ## 制約とデータの取り扱い
 
