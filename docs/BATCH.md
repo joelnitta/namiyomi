@@ -1,6 +1,7 @@
-# Batch mode and Claude (MCP) integration
+# Claude (MCP) integration and command-line batch tool
 
-For large numbers of AB1 files. The GUI is unchanged; these tools reuse its code (`core.py`, `assembly.py`)
+For working on AB1 files with an AI assistant, whether one pair or hundreds, and for processing a whole folder
+from the command line. The GUI is unchanged; these tools reuse its code (`core.py`, `assembly.py`)
 and write only to an output folder you choose. **Original AB1 files are never modified or moved.**
 Everything runs locally; no sequence data is uploaded by this software.
 

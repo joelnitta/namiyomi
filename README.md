@@ -89,77 +89,99 @@ The default is 100% identity. **Settings > Find Settings** permits 80–100% ide
 
 Right-click the sidebar for common actions. Double-click a sequence name to rename it. Double-click **Sequences** or **Length (bp)** to sort reads and contigs, then repeat to reverse the order. Delete, return-to-AB1, and export-with-flags confirmations offer **Don't ask again for this action**; **Settings > Confirmations** restores each prompt independently.
 
-## Batch mode and AI-assisted review (optional, for many samples)
+## Command-line batch processing
 
-For dozens or hundreds of reads, namiyomi can also run without the window: a command-line batch tool, and an [MCP](https://modelcontextprotocol.io/) server that lets an AI assistant such as Claude run the batch, inspect the flagged positions and, if you ask, review them. The application and the GUI are unchanged. These tools are available **from the source code only** (they are not in the application ZIPs) and need Python 3.10 or later. Full details: [docs/BATCH.md](docs/BATCH.md).
+namiyomi can also build contigs for a whole folder of AB1 files without opening the window. The batch tool uses namiyomi's own trimming, assembly and consensus code, and writes the results to a folder you choose; **your AB1 files are never modified**. It is available **from the source code only** (it is not in the application ZIPs) and needs Python 3.10 or later. Full details: [docs/BATCH.md](docs/BATCH.md).
 
 ### Set up (once)
 
-You need Python 3.10 or later. Check with `python3 --version` (Windows: `py --version`). The `python3` that comes with macOS is 3.9, which is too old; install a newer one from [python.org](https://www.python.org/downloads/) or Homebrew. In a terminal, from the namiyomi folder (the one with this README):
-
-macOS:
+Check your Python version with `python3 --version` (Windows: `py --version`). The `python3` that comes with macOS is 3.9, which is too old; install a newer one from [python.org](https://www.python.org/downloads/) or Homebrew. Then, in a terminal, from the namiyomi folder (the one with this README):
 
 ```
-python3 -m venv .venv
-.venv/bin/pip install -r requirements/batch.txt
+python3 -m venv .venv                                # Windows: py -m venv .venv
+.venv/bin/pip install -r requirements/batch.txt      # Windows: .venv\Scripts\pip install -r requirements\batch.txt
+```
+
+### Run
+
+Make a folder for the project with the AB1 files in a subfolder, for example `~/projects/rbcL-2026/reads`. Then, from the namiyomi folder:
+
+```
+.venv/bin/python src/batch.py --input ~/projects/rbcL-2026/reads --output ~/projects/rbcL-2026/results
+```
+
+On Windows, use `.venv\Scripts\python src\batch.py` and Windows paths.
+
+Add `--dry-run` to preview the groups without writing anything.
+
+- **Grouping.** By default, files are grouped by the text before the first underscore, as in **Build Contig (AUTO)**. If one folder holds several loci, give a CSV sample sheet with the columns `file,sample,marker` (`--sheet sheet.csv`).
+- **Sorting.** Each contig is sorted into **clean**, **needs review** (flagged positions), **single read** (only one usable read, including pairs where one read was trimmed to nothing) and **failed**. One failing group never stops the others.
+
+| File | Contents |
+| --- | --- |
+| `project.json` | All contigs, unedited. Open it in the window to check the flagged positions (see below). |
+| `summary.tsv`, `summary.json` | One row per contig with its category, reads and flagged columns. |
+| `*.fasta` | One file per marker (`auto.fasta` with the default grouping). Single-read sequences are exported only with `--allow-single`. |
+
+To open a project, use **File > Import Previous Project** in the namiyomi application. If you only have the source code, install the window's extra dependency once (`.venv/bin/pip install -r requirements/runtime.txt`; Windows: `.venv\Scripts\pip`) and run `.venv/bin/python src/app.py --project ~/projects/rbcL-2026/results/project.json`. Keep the AB1 files where they are: projects refer to them by relative path (see the limits below).
+
+## AI-assisted review
+
+namiyomi can also work with an AI assistant such as Claude, through an [MCP](https://modelcontextprotocol.io/) server. The assistant builds the contigs with the batch tool, inspects the flagged positions and, if you ask, reviews them and trims the ends, whether you have one pair of reads or several hundred. You check the result in the window as usual.
+
+### Set up (once)
+
+Set up the batch tool first (above). Then register the server with Claude Code, from the namiyomi folder:
+
+```
 claude mcp add -s user namiyomi -- "$(pwd)/.venv/bin/python" "$(pwd)/src/mcp_server.py"
 ```
 
-Windows (PowerShell):
+On Windows (PowerShell): `claude mcp add -s user namiyomi -- "$PWD\.venv\Scripts\python.exe" "$PWD\src\mcp_server.py"`.
 
-```
-py -m venv .venv
-.venv\Scripts\pip install -r requirements\batch.txt
-claude mcp add -s user namiyomi -- "$PWD\.venv\Scripts\python.exe" "$PWD\src\mcp_server.py"
-```
-
-The last line registers the server with Claude Code. `-s user` makes the tools available in every folder, not only in the namiyomi folder, so you can then start the assistant wherever your data are. For Claude Desktop, add the same command to its configuration file instead; [docs/BATCH.md](docs/BATCH.md) gives the file locations for macOS and Windows.
+`-s user` makes the tools available in every folder, not only in the namiyomi folder, so you can start the assistant wherever your data are. For Claude Desktop, add the same command to its configuration file instead; [docs/BATCH.md](docs/BATCH.md) gives the file locations for macOS and Windows.
 
 Then check and restart:
 
 1. `claude mcp list` should show `namiyomi: … ✔ Connected`.
 2. Restart the assistant, because the tools are loaded only when a session starts. Claude Code in a terminal: quit and run `claude` again. Claude Code in VS Code: start a new conversation, or run **Developer: Reload Window**. Claude Desktop: quit the app fully and reopen it.
 
-### Fully automatic run with an AI assistant
+### Working with the assistant
 
-Make a folder for the project with the AB1 files in a subfolder, for example `~/projects/rbcL-2026/reads`. Start the assistant in the project folder (for Claude Code: `cd ~/projects/rbcL-2026`, then `claude`) and ask in plain language, for example:
+Put the AB1 files in a project folder as above, start the assistant in the project folder (for Claude Code: `cd ~/projects/rbcL-2026`, then `claude`) and ask in plain language, for example:
 
-> Run the batch on `reads`, write the results to `results`, and review the flagged positions yourself.
+> Build contigs from the reads in `reads`, write the results to `results`, and review the flagged positions yourself.
 
 The assistant then:
 
-1. **Scans** the folder and proposes groups. By default, files are grouped by the text before the first underscore, as in **Build Contig (AUTO)**. If one folder holds several loci, give it a CSV sample sheet with the columns `file,sample,marker` and ask it to use the sheet.
-2. **Builds** a contig for each group with namiyomi's own trimming, assembly and consensus code, and sorts the results: **clean**, **needs review** (flagged positions), **single read** and **failed**. One failing group never stops the others.
+1. **Scans** the folder and proposes groups, as the batch tool does. To use a sample sheet, say so.
+2. **Builds** and sorts the contigs, as the batch tool does.
 3. **Reviews** each flagged position. It reads the per-read calls and Phred scores and looks at a rendered chromatogram of the position. It changes a call only when one base clearly dominates the signal, and leaves anything unclear as `N`.
 4. **Reports** what it did, with the changes and reasons for each, and the positions it left unresolved.
+
+Without the review request (or by asking for "human review"), the assistant stops after sorting the results and hands you `project.json` to check in the window.
 
 In practice, most flags are usually not conflicts between reads but low-quality bases at the end of one read, beyond where the other read reaches (these contigs are noticeably longer than the clean ones). Those positions are read from one trace only, so the assistant often has to leave them as `N`. How much of such an end to keep is a judgement call. Trimming strictly to the region covered by both reads is simple but can discard many usable bases, so you may prefer to trim the single-read end by quality and accept an occasional `N` to keep a longer sequence. You can trim in the window, or ask the assistant for help:
 
 - "Compare trimming options for the contig ends in `results`" gives a per-contig table of the single-read ends (length, quality, `N`s) and what common rules would keep: quality-based (a rolling mean of Phred scores), cutting before a run of `N`s, or keeping only the region both reads cover.
 - "Trim each single-read end before the first run of 4 or more `N`s" (or a rolling-mean rule) shows the proposed cuts and applies them after you confirm.
 
-In Claude Code, `/mcp__namiyomi__trim_contig_ends` starts this guided workflow. The trims go into `project.reviewed.json` and are logged in `review_report.md` like the assistant's other edits; it does not trim unless you ask.
+In Claude Code, `/mcp__namiyomi__trim_contig_ends` starts this guided workflow. The assistant does not trim unless you ask.
 
-Everything is written to the output folder; **your AB1 files are never modified**:
+The assistant writes the same files as the batch tool, plus these when it edits; `project.json` and the batch FASTA files stay unedited:
 
 | File | Contents |
 | --- | --- |
-| `project.json` | The unedited machine result. Open it in the window (see below). |
-| `project.reviewed.json` | A copy with the assistant's edits, only if it reviewed. Open it the same way; positions it left unresolved are still marked as review flags. |
+| `project.reviewed.json` | A copy with the assistant's edits and trims. Open it the same way as `project.json`; positions it left unresolved are still marked as review flags. |
 | `review_report.md` | Every edit with its reason, to check or undo, followed by the list of positions left unresolved. |
-| `summary.tsv`, `summary.json` | One row per contig with its category, reads and flagged columns. |
-| `*.fasta` | One file per marker (`auto.fasta` with the default grouping), from the unedited run. Single-read sequences are exported only if you ask. |
-| `*.reviewed.fasta` | The same with the assistant's edits (for example `auto.reviewed.fasta`), written when it exports the reviewed project. The unedited FASTA is kept. |
+| `*.reviewed.fasta` | FASTA with the assistant's edits (for example `auto.reviewed.fasta`), written when it exports the reviewed project. |
 
-To open a project, use **File > Import Previous Project** in the namiyomi application. If you only have the source code, install the window's extra dependency once (`.venv/bin/pip install -r requirements/runtime.txt`; Windows: `.venv\Scripts\pip`) and run `.venv/bin/python src/app.py --project OUT_FOLDER/project.reviewed.json`. You can also ask the assistant to open it for you.
-
-Without the review request (or by asking for "human review"), the assistant stops after sorting the results and hands you `project.json` to check in the window as usual. You can also use the batch tool without any AI: `.venv/bin/python src/batch.py --input FOLDER --output OUT_FOLDER` (add `--dry-run` to preview the groups).
+You can also ask the assistant to open a project in the window for you.
 
 ### What to keep in mind
 
 - **The AI's review is a second opinion, not ground truth.** It sees the same traces and quality scores you do, but may misjudge noisy or overlapping peaks. As elsewhere in this README, check the sequences before using them in analysis. Start with the positions it left unresolved and the edits in low-quality stretches. Each edit is logged so it can be reversed, and `project.json` is always kept unedited.
-- **Your data is shared with the assistant.** The batch tool itself makes no network connections, but in this mode the sequences, quality scores and chromatogram images it requests become part of your conversation with the AI service. Do not use it with data that you may not share with that service.
-- **Keep the AB1 files where they are.** Projects refer to them by relative path (see the limits below).
+- **Your data is shared with the assistant.** namiyomi's tools make no network connections, but in this mode the sequences, quality scores and chromatogram images it requests become part of your conversation with the AI service. Do not use it with data that you may not share with that service.
 
 ## Choosing a tool
 
