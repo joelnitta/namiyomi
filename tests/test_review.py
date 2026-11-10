@@ -129,6 +129,107 @@ class ReviewTests(unittest.TestCase):
         self.assertNotEqual((self.out / 'auto.reviewed.fasta').read_text(), before)
         self.assertEqual(sorted(p.name for p in self.out.iterdir() if p.is_dir()), [])  # temp dir removed
 
+    def test_column_qualities(self):
+        project = review.load_project(self.project_path)
+        q = review.column_qualities(project, 'Demo01')
+        self.assertEqual(len(q['rows']), q['columns'])
+        row = next(r for r in q['rows'] if r['column'] == self.flag)
+        self.assertEqual(len(row['reads']), 2)
+        self.assertEqual(len(review.column_qualities(project, 'Demo01', 10, 19)['rows']), 10)
+        with self.assertRaises(ValueError):
+            review.column_qualities(project, 'Demo01', 20, 10)
+
+    def test_trim_deletes_outside_columns(self):
+        orig = review.resolve_contig(review.load_project(self.project_path), 'Demo01')[1]
+        last = len(orig.columns) - 1
+        result = review.apply_review_edits(self.project_path, self.reviewed, [
+            dict(contig='Demo01', action='trim', keep_from=5, keep_to=last - 10, reason='rolling mean Q < 20')])
+        contig = review.resolve_contig(review.load_project(self.reviewed), 'Demo01')[1]
+        expected = ''.join(orig.call(i) for i in range(5, last - 9)).replace('-', '')
+        self.assertEqual(contig.sequence(), expected)
+        self.assertIn('trimmed to columns 5-', Path(result['report']).read_text(encoding='utf-8'))
+        for bad in (dict(keep_from=0, keep_to=last), dict(keep_from=10, keep_to=5), dict(keep_from=0, keep_to=last + 1)):
+            with self.assertRaises(ValueError, msg=str(bad)):
+                review.apply_review_edits(self.project_path, self.out / 'bad.json',
+                                          [dict(contig='Demo01', action='trim', reason='x', **bad)])
+
+    def test_rolling_keep(self):
+        self.assertEqual(review._rolling_keep([5, 5, 30, 30, 30], 2, 20, 5), 2)
+        self.assertEqual(review._rolling_keep([5, None, 30, 30], 2, 20, 4), 1)  # None left out of the mean
+        self.assertEqual(review._rolling_keep([5, 5, 5, 30], 1, 20, 2), 2)      # never past the limit
+        self.assertEqual(review._rolling_keep([30, 5], 1, 20, 2), 0)
+
+    def test_suggest_quality_trim(self):
+        project = review.load_project(self.project_path)
+        lenient = review.suggest_quality_trim(project, window=10, min_mean_phred=0)
+        self.assertEqual({r['name'] for r in lenient}, {'Demo01', 'Demo02'})
+        self.assertTrue(all(r['edit'] is None for r in lenient))
+        strict = review.suggest_quality_trim(project, 'Demo01', window=5, min_mean_phred=99,
+                                             single_read_ends_only=True)[0]
+        self.assertEqual([strict['keep_from'], strict['keep_to']], strict['overlap'])  # stops at the overlap
+        free = review.suggest_quality_trim(project, 'Demo01', window=5, min_mean_phred=99,
+                                           single_read_ends_only=False)[0]
+        self.assertIn('error', free)
+        before = review.resolve_contig(project, 'Demo01')[1].sequence()
+        self.assertEqual(review.resolve_contig(review.load_project(self.project_path), 'Demo01')[1].sequence(),
+                         before)  # dry run changed nothing
+        if strict['edit']:
+            result = review.apply_review_edits(self.project_path, self.reviewed, [strict['edit']])
+            self.assertEqual(result['applied'], 1)
+        with self.assertRaises(ValueError):
+            review.suggest_quality_trim(project, window=0)
+
+    def test_n_run_cut(self):
+        calls = list('AANCNNNAA') + ['', 'N']
+        self.assertEqual(review._n_run_cut(calls, 3, range(len(calls))), 4)
+        self.assertEqual(review._n_run_cut(calls, 1, range(len(calls))), 2)
+        self.assertIsNone(review._n_run_cut(calls, 4, range(len(calls))))
+        self.assertEqual(review._n_run_cut(list('ANN') + ['-'] + list('NA'), 3, range(6)), 1)  # gaps skipped
+
+    def _project_with_n_runs(self):
+        """Demo02 with an NNNN run in its right single-read end and an NN pair in the left one."""
+        project = review.load_project(self.project_path)
+        _, contig = review.resolve_contig(project, 'Demo02')
+        a, b = review._Ends(contig).overlap
+        for col in range(b + 20, b + 24):
+            contig.overrides[str(col)] = 'N'
+        for col in (a - 30, a - 29):
+            contig.overrides[str(col)] = 'N'
+        return project, contig, a, b
+
+    def test_suggest_trim_max_n_run(self):
+        project, contig, a, b = self._project_with_n_runs()
+        r = review.suggest_quality_trim(project, 'Demo02', min_mean_phred=None, max_n_run=4)[0]
+        self.assertEqual((r['keep_from'], r['keep_to']), (0, b + 19))
+        self.assertIn('run of 4 or more Ns', r['edit']['reason'])
+        r = review.suggest_quality_trim(project, 'Demo02', min_mean_phred=None, max_n_run=2)[0]
+        self.assertEqual((r['keep_from'], r['keep_to']), (a - 28, b + 19))
+        self.assertEqual(r['n_count'], 0)
+        both = review.suggest_quality_trim(project, 'Demo02', window=5, min_mean_phred=99, max_n_run=4)[0]
+        self.assertEqual((both['keep_from'], both['keep_to']), (a, b))  # stricter rule wins at each end
+        with self.assertRaises(ValueError):
+            review.suggest_quality_trim(project, min_mean_phred=None)
+        with self.assertRaises(ValueError):
+            review.suggest_quality_trim(project, max_n_run=0)
+
+    def test_describe_contig_ends(self):
+        project, contig, a, b = self._project_with_n_runs()
+        d = review.describe_contig_ends(project, 'Demo02')[0]
+        self.assertEqual(d['overlap'], [a, b])
+        self.assertEqual(len(d['reads']), 2)
+        self.assertEqual(d['right_end']['longest_n_run'], 4)
+        self.assertEqual(d['left_end']['n_count'], 2)
+        opts = {o['label']: o for o in d['options']}
+        self.assertEqual(opts['keep everything']['length'], len(contig.sequence()))
+        self.assertEqual(opts['cut before a run of >=4 N']['keep_to'], b + 19)
+        self.assertEqual((opts['region covered by two reads']['keep_from'],
+                          opts['region covered by two reads']['keep_to']), (a, b))
+        custom = review.describe_contig_ends(project, 'Demo02', [dict(label='x', min_mean_phred=None, max_n_run=2),
+                                                                 dict(label='bad', max_n_run=0)])[0]['options']
+        self.assertEqual(custom[0]['keep_from'], a - 28)
+        self.assertIn('error', custom[1])
+        self.assertEqual(len(review.describe_contig_ends(project)), 2)
+
     def test_export_fasta_from_project(self):
         out = self.out / 'again'
         result = review.export_fasta(self.project_path, out)

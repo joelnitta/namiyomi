@@ -28,7 +28,17 @@ class McpToolTests(unittest.TestCase):
         import asyncio
         names = {t.name for t in asyncio.run(mcp_server.mcp.list_tools())}
         self.assertEqual(names, {'scan_folder', 'run_batch', 'list_contigs', 'get_contig_details',
+                                 'get_column_qualities', 'describe_contig_ends', 'suggest_quality_trim',
                                  'find_sequence', 'render_trace', 'apply_review_edits', 'export_fasta'})
+
+    def test_trim_prompt(self):
+        import asyncio
+        prompts = {p.name for p in asyncio.run(mcp_server.mcp.list_prompts())}
+        self.assertEqual(prompts, {'trim_contig_ends'})
+        text = mcp_server.trim_contig_ends('/x/project.json', 'cut before 4 Ns')
+        self.assertIn('describe_contig_ends', text)
+        self.assertIn('"cut before 4 Ns"', text)
+        self.assertIn('Do not apply anything', text)
 
     def test_human_review_is_default_and_makes_no_edits(self):
         self.assertEqual(mcp_server.scan_folder(str(self.demo))['ab1_files'], 4)

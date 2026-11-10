@@ -68,6 +68,257 @@ def contig_details(project, ref):
                 min_quality=project.settings['min_quality'], sources=sources, flagged=flagged)
 
 
+def column_qualities(project, ref, start=None, end=None):
+    """Every alignment column in [start, end] (0-based, inclusive): consensus call and each read's base and Phred.
+
+    Use it to choose a trim point, e.g. where a rolling mean of the Phred scores falls below a threshold.
+    """
+    _, contig = resolve_contig(project, ref)
+    total = len(contig.columns)
+    start = 0 if start is None else int(start)
+    end = total - 1 if end is None else int(end)
+    if not 0 <= start <= end < total:
+        raise ValueError(f'Need 0 <= start <= end <= {total - 1}.')
+    rows = []
+    for col in range(start, end + 1):
+        reads = [None if b is None else [b.base, b.quality] for b in (s.mapping[col] for s in contig.sources)]
+        rows.append(dict(column=col, consensus=contig.call(col), reads=reads))
+    return dict(name=contig.sequence_name, columns=total, min_quality=project.settings['min_quality'],
+                sources=[Path(project.reads[s.read_id].path).name for s in contig.sources],
+                note='reads: [base, phred] per source in that order, null if the read does not cover the column',
+                rows=rows)
+
+
+def _rolling_keep(scores, window, threshold, limit):
+    """First index (scanning from 0, never past ``limit``) whose window mean reaches ``threshold``.
+
+    ``scores`` holds None for columns left out of the mean (isolated Ns, bases without a Phred).
+    """
+    for i in range(limit):
+        vals = [q for q in scores[i:i + window] if q is not None]
+        if not vals or sum(vals) / len(vals) >= threshold:
+            return i
+    return limit
+
+
+def _n_run_cut(calls, run, cols):
+    """Walk ``cols`` (inner to outer) and return the innermost column of the first run of ``run`` Ns.
+
+    Gap columns ('' or '-') are skipped, so they neither break nor extend a run. None if there is no such run.
+    """
+    count, first = 0, None
+    for col in cols:
+        if calls[col] in ('', '-'):
+            continue
+        if calls[col] == 'N':
+            count, first = count + 1, col if count == 0 else first
+            if count >= run:
+                return first
+        else:
+            count = 0
+    return None
+
+
+class _Ends:
+    """Per-column data for one contig, shared by the end-trimming helpers."""
+
+    def __init__(self, contig, keep_isolated_n=True):
+        n = len(contig.columns)
+        self.n, self.contig = n, contig
+        self.calls = [contig.call(i) for i in range(n)]
+        self.scores, self.phred, self.covered = [], [], []
+        for col in range(n):
+            bases = [s.mapping[col] for s in contig.sources if s.mapping[col] is not None]
+            quals = [b.quality for b in bases if b.quality is not None]
+            self.covered.append(len(bases))
+            self.phred.append(max(quals) if quals else None)
+            isolated_n = (keep_isolated_n and self.calls[col] == 'N'
+                          and (col == 0 or self.calls[col - 1] != 'N')
+                          and (col == n - 1 or self.calls[col + 1] != 'N'))
+            self.scores.append(None if isolated_n else self.phred[-1])
+        multi = [i for i, c in enumerate(self.covered) if c >= 2]
+        self.overlap = (multi[0], multi[-1]) if multi else None
+
+    def bases(self, cols):
+        return [self.calls[i] for i in cols if self.calls[i] not in ('', '-')]
+
+    def bounds(self, window=10, min_mean_phred=20, single_read_ends_only=True, max_n_run=None):
+        """(keep_from, keep_to) under the rules; raises ValueError if nothing would be kept."""
+        _check_rule(window, min_mean_phred, max_n_run)
+        n, restrict = self.n, single_read_ends_only and self.overlap
+        left_limit = self.overlap[0] if restrict else n
+        right_limit = n - 1 - self.overlap[1] if restrict else n
+        keep_from, keep_to = 0, n - 1
+        if min_mean_phred is not None:
+            keep_from = _rolling_keep(self.scores, window, float(min_mean_phred), left_limit)
+            keep_to = n - 1 - _rolling_keep(self.scores[::-1], window, float(min_mean_phred), right_limit)
+        if max_n_run:
+            # Walk outward from the reliable middle: the overlap if restricted, else the contig's centre.
+            inner_left, inner_right = (self.overlap[0] - 1, self.overlap[1] + 1) if restrict else (n // 2 - 1, n // 2)
+            cut = _n_run_cut(self.calls, int(max_n_run), range(inner_right, n))
+            if cut is not None:
+                keep_to = min(keep_to, cut - 1)
+            cut = _n_run_cut(self.calls, int(max_n_run), range(inner_left, -1, -1))
+            if cut is not None:
+                keep_from = max(keep_from, cut + 1)
+        if keep_from > keep_to:
+            raise ValueError('These rules would remove the whole contig.')
+        return keep_from, keep_to
+
+    def outcome(self, keep_from, keep_to):
+        kept = self.bases(range(keep_from, keep_to + 1))
+        return dict(keep_from=keep_from, keep_to=keep_to, length=len(kept), n_count=kept.count('N'),
+                    removed_left=len(self.bases(range(keep_from))),
+                    removed_right=len(self.bases(range(keep_to + 1, self.n))))
+
+    def tail(self, cols):
+        cols = list(cols)
+        bases = self.bases(cols)
+        quals = [self.phred[i] for i in cols if self.phred[i] is not None and self.calls[i] not in ('', '-')]
+        n_cols = [i for i in cols if self.calls[i] == 'N']
+        longest = run = 0
+        for i in cols:
+            if self.calls[i] in ('', '-'):
+                continue
+            run = run + 1 if self.calls[i] == 'N' else 0
+            longest = max(longest, run)
+        return dict(columns=[cols[0], cols[-1]] if cols else None, bases=len(bases),
+                    mean_phred=round(sum(quals) / len(quals), 1) if quals else None,
+                    n_count=len(n_cols), longest_n_run=longest, n_columns=n_cols)
+
+
+def _check_rule(window, min_mean_phred, max_n_run):
+    if int(window) < 1:
+        raise ValueError('window must be at least 1.')
+    if max_n_run is not None and int(max_n_run) < 1:
+        raise ValueError('max_n_run must be at least 1.')
+    if min_mean_phred is None and not max_n_run:
+        raise ValueError('Give min_mean_phred, max_n_run or both.')
+
+
+def _rule_text(window, min_mean_phred, single_read_ends_only, keep_isolated_n, max_n_run):
+    parts = []
+    if min_mean_phred is not None:
+        parts.append(f'rolling mean Phred over {window} columns below {min_mean_phred:g}'
+                     + (', isolated Ns left out of the mean' if keep_isolated_n else ''))
+    if max_n_run:
+        parts.append(f'cut before the first run of {max_n_run} or more Ns')
+    scope = 'single-read ends only' if single_read_ends_only else 'both ends'
+    return '; '.join(parts) + f' ({scope}).' if parts else 'no rule'
+
+
+def _contigs(project, ref):
+    return [resolve_contig(project, ref)] if ref else list(project.contigs.items())
+
+
+def suggest_quality_trim(project, ref=None, window=10, min_mean_phred=20, single_read_ends_only=True,
+                         keep_isolated_n=True, max_n_run=None):
+    """Dry run of end trimming of contigs. Nothing is changed.
+
+    Two rules, either or both (the stricter cut wins at each end):
+
+    - Rolling mean (``min_mean_phred``; None turns it off): column quality is the highest Phred among the
+      reads covering it; from each end inward, columns are trimmed while the mean over the next
+      ``window`` columns is below the threshold. With ``keep_isolated_n``, an N flanked by non-N calls is
+      left out of the mean, so it neither causes nor blocks a cut.
+    - N runs (``max_n_run``): walking outward from the region two reads cover, each end is cut just before
+      the first run of ``max_n_run`` or more consecutive Ns.
+
+    With ``single_read_ends_only``, cuts never reach into the region two reads cover (contigs with one read
+    are trimmed from their centre outward). Each result carries a ready ``trim`` edit for
+    :func:`apply_review_edits` (``None`` when nothing would be trimmed).
+    """
+    window = int(window)
+    _check_rule(window, min_mean_phred, max_n_run)
+    rule = _rule_text(window, min_mean_phred, single_read_ends_only, keep_isolated_n, max_n_run)
+    results = []
+    for _, contig in _contigs(project, ref):
+        if contig.stale:
+            results.append(dict(name=contig.sequence_name, error='Inputs have changed; rebuild the contig first.'))
+            continue
+        ends = _Ends(contig, keep_isolated_n)
+        try:
+            keep_from, keep_to = ends.bounds(window, min_mean_phred, single_read_ends_only, max_n_run)
+        except ValueError as exc:
+            results.append(dict(name=contig.sequence_name, columns=ends.n, error=str(exc)))
+            continue
+        edit = None
+        if (keep_from, keep_to) != (0, ends.n - 1):
+            edit = dict(contig=contig.sequence_name, action='trim', keep_from=keep_from, keep_to=keep_to,
+                        reason=rule[0].upper() + rule[1:])
+        result = dict(name=contig.sequence_name, columns=ends.n,
+                      overlap=list(ends.overlap) if ends.overlap else None, **ends.outcome(keep_from, keep_to))
+        result['isolated_n_kept'] = sum(1 for i in range(keep_from, keep_to + 1)
+                                        if ends.calls[i] == 'N' and ends.scores[i] is None) if keep_isolated_n else 0
+        result['edit'] = edit
+        results.append(result)
+    return results
+
+
+DEFAULT_TRIM_OPTIONS = (
+    dict(label='keep everything'),
+    dict(label='rolling mean Q20 over 10', window=10, min_mean_phred=20),
+    dict(label='rolling mean Q30 over 20', window=20, min_mean_phred=30),
+    dict(label='cut before a run of >=4 N', min_mean_phred=None, max_n_run=4),
+    dict(label='cut before a run of >=3 N', min_mean_phred=None, max_n_run=3),
+    dict(label='cut before any N', min_mean_phred=None, max_n_run=1),
+    dict(label='region covered by two reads', overlap_only=True),
+)
+
+
+def describe_contig_ends(project, ref=None, options=None):
+    """What the ends of each contig look like and what candidate trimming rules would do. Nothing is changed.
+
+    For each contig: how the reads are laid out, the region two reads cover, each single-read end
+    (length, mean Phred, N count, longest N run, N columns), and for each option the kept range, length
+    and N count. ``options`` is a list of dicts with ``label`` plus any of the
+    :func:`suggest_quality_trim` arguments (``window``, ``min_mean_phred``, ``max_n_run``,
+    ``single_read_ends_only``, ``keep_isolated_n``), or ``overlap_only: true``; an option with no rule
+    keeps everything. The default compares common rules.
+    """
+    options = list(options or DEFAULT_TRIM_OPTIONS)
+    rows = {r['key']: r for r in triage(project)}
+    results = []
+    for key, contig in _contigs(project, ref):
+        ends = _Ends(contig)
+        reads = []
+        for source in contig.sources:
+            read, trace = project.reads[source.read_id], project.traces[source.read_id]
+            cols = [i for i, b in enumerate(source.mapping) if b is not None]
+            kept = [q for q in trace.qualities[read.start:read.end] if q is not None]
+            reads.append(dict(file=Path(read.path).name, reverse_complemented=source.reverse,
+                              columns=[cols[0], cols[-1]] if cols else None, raw_length=len(trace.sequence),
+                              trimmed_length=read.end - read.start,
+                              median_phred=sorted(kept)[len(kept) // 2] if kept else None))
+        if ends.overlap:
+            left, right = range(0, ends.overlap[0]), range(ends.overlap[1] + 1, ends.n)
+        else:
+            left = right = range(0)
+        compared = []
+        for option in options:
+            label = option.get('label') or 'option'
+            try:
+                if option.get('overlap_only'):
+                    if not ends.overlap:
+                        continue
+                    bounds = ends.overlap
+                elif not any(k in option for k in ('min_mean_phred', 'max_n_run')):
+                    bounds = (0, ends.n - 1)
+                else:
+                    kw = {k: option[k] for k in ('window', 'min_mean_phred', 'single_read_ends_only', 'max_n_run')
+                          if k in option}
+                    bounds = _Ends(contig, option.get('keep_isolated_n', True)).bounds(**kw)
+                compared.append(dict(label=label, **ends.outcome(*bounds)))
+            except (TypeError, ValueError) as exc:
+                compared.append(dict(label=label, error=str(exc)))
+        results.append(dict(name=contig.sequence_name, category=rows[key]['category'], columns=ends.n,
+                            overlap=list(ends.overlap) if ends.overlap else None, reads=reads,
+                            left_end=ends.tail(left) if ends.overlap else None,
+                            right_end=ends.tail(right) if ends.overlap else None,
+                            n_total=ends.calls.count('N'), options=compared))
+    return results
+
+
 def _peak_heights(trace, base, reverse):
     """Raw height of each channel at the base's peak, named in contig orientation (None if no peak)."""
     if base is None or base.raw is None:
@@ -132,9 +383,12 @@ def render_trace(project, ref, column, window=15):
 def apply_review_edits(project_path, output_path, edits, report_path=None, reviewer='Claude', unresolved=None):
     """Apply review verdicts to a COPY of the project and log each with its reason.
 
-    Each edit: ``{contig, column, action: 'set'|'confirm', value (for set), reason}``.
+    Each edit: ``{contig, column, action: 'set'|'confirm', value (for set), reason}``, or
+    ``{contig, action: 'trim', keep_from, keep_to, reason}``.
     ``set`` changes the consensus call (like typing a base in the GUI); ``confirm`` marks the
-    flag reviewed without changing the call. All edits are validated before any is applied.
+    flag reviewed without changing the call; ``trim`` deletes the consensus columns outside
+    ``keep_from..keep_to`` (inclusive, like deleting bases in the GUI's consensus row).
+    All edits are validated before any is applied.
     ``unresolved`` optionally gives ``{contig, column, reason}`` for flags deliberately left alone;
     every flag still open after the edits is listed in the report, with its reason if given.
     """
@@ -149,17 +403,26 @@ def apply_review_edits(project_path, output_path, edits, report_path=None, revie
     for n, edit in enumerate(edits, start=1):
         try:
             key, contig = resolve_contig(project, edit['contig'])
-            col, action = int(edit['column']), edit.get('action', 'set')
+            action = edit.get('action', 'set')
             reason = str(edit.get('reason', '')).strip()
+            last = len(contig.columns) - 1
             if contig.stale:
                 raise ValueError('Inputs have changed; rebuild the contig first.')
-            if not 0 <= col < len(contig.columns):
-                raise ValueError(f'Column {col} is outside 0..{len(contig.columns) - 1}.')
-            if action not in ('set', 'confirm'):
-                raise ValueError("action must be 'set' or 'confirm'.")
+            if action not in ('set', 'confirm', 'trim'):
+                raise ValueError("action must be 'set', 'confirm' or 'trim'.")
             if not reason:
                 raise ValueError('A reason is required so the change can be audited.')
             value = None
+            if action == 'trim':
+                col = (int(edit['keep_from']), int(edit['keep_to']))
+                if not 0 <= col[0] <= col[1] <= last:
+                    raise ValueError(f'Need 0 <= keep_from <= keep_to <= {last}.')
+                if col == (0, last):
+                    raise ValueError('keep_from..keep_to covers the whole contig; nothing to trim.')
+            else:
+                col = int(edit['column'])
+                if not 0 <= col <= last:
+                    raise ValueError(f'Column {col} is outside 0..{last}.')
             if action == 'set':
                 value = base_text(str(edit.get('value', '')))
                 if len(value) != 1:
@@ -176,6 +439,18 @@ def apply_review_edits(project_path, output_path, edits, report_path=None, revie
             raise ValueError(f'Unresolved item {n}: {exc.args[0] if isinstance(exc, KeyError) else exc}') from exc
     lines = []
     for key, contig, col, action, value, reason in plan:
+        if action == 'trim':
+            keep_from, keep_to = col
+            removed = [i for i in range(len(contig.columns)) if not keep_from <= i <= keep_to]
+            bases = sum(contig.call(i) not in ('', '-') for i in removed)
+            for i in removed:
+                contig.overrides[str(i)] = ''          # same as deleting a consensus base in the GUI
+                contig.black_marks.pop(str(i), None)
+            cut = ([f'0-{keep_from - 1}'] if keep_from else []) + \
+                  ([f'{keep_to + 1}-{len(contig.columns) - 1}'] if keep_to < len(contig.columns) - 1 else [])
+            lines.append(f'- **{contig.sequence_name}**: trimmed to columns {keep_from}-{keep_to} '
+                         f'({bases} bases removed from columns {" and ".join(cut)}). {reason}')
+            continue
         before = contig.call(col)
         if action == 'set':
             contig.overrides[str(col)] = value

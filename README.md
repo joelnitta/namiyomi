@@ -133,7 +133,12 @@ The assistant then:
 3. **Reviews** each flagged position. It reads the per-read calls and Phred scores and looks at a rendered chromatogram of the position. It changes a call only when one base clearly dominates the signal, and leaves anything unclear as `N`.
 4. **Reports** what it did, with the changes and reasons for each, and the positions it left unresolved.
 
-In practice, most flags are usually not conflicts between reads but low-quality bases at the end of one read, beyond where the other read reaches (these contigs are noticeably longer than the clean ones). Those positions are read from one trace only, so the assistant often has to leave them as `N`. Trimming such ends is often worth considering when you check the contig in the window.
+In practice, most flags are usually not conflicts between reads but low-quality bases at the end of one read, beyond where the other read reaches (these contigs are noticeably longer than the clean ones). Those positions are read from one trace only, so the assistant often has to leave them as `N`. How much of such an end to keep is a judgement call. Trimming strictly to the region covered by both reads is simple but can discard many usable bases, so you may prefer to trim the single-read end by quality and accept an occasional `N` to keep a longer sequence. You can trim in the window, or ask the assistant for help:
+
+- "Compare trimming options for the contig ends in `results`" gives a per-contig table of the single-read ends (length, quality, `N`s) and what common rules would keep: quality-based (a rolling mean of Phred scores), cutting before a run of `N`s, or keeping only the region both reads cover.
+- "Trim each single-read end before the first run of 4 or more `N`s" (or a rolling-mean rule) shows the proposed cuts and applies them after you confirm.
+
+In Claude Code, `/mcp__namiyomi__trim_contig_ends` starts this guided workflow. The trims go into `project.reviewed.json` and are logged in `review_report.md` like the assistant's other edits; it does not trim unless you ask.
 
 Everything is written to the output folder; **your AB1 files are never modified**:
 

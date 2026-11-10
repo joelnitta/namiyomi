@@ -21,6 +21,8 @@ CLAUDE_NEXT = ('Review mode is "claude": for each needs_review contig call get_c
                'uncertain unedited, pass it as unresolved with a short reason so it is listed in the report, '
                'and list it for the user. Then export_fasta from the reviewed project (files are named '
                '<marker>.reviewed.fasta). Your reading of traces is a second opinion; say so.')
+TRIM_NOTE = (' If the user asks about trimming contig ends, start with describe_contig_ends, agree on a rule, '
+             'preview it with suggest_quality_trim and apply it only after they confirm.')
 
 
 def _path(value):
@@ -56,7 +58,7 @@ def run_batch(input_dir: str, output_dir: str, sheet: str | None = None, allow_s
     summary = batch.run_batch(_path(input_dir), _path(output_dir), sheet=_path(sheet) if sheet else None,
                               settings=settings, allow_single=allow_single)
     summary['review_mode'] = review
-    summary['next_steps'] = HUMAN_NEXT if review == 'human' else CLAUDE_NEXT
+    summary['next_steps'] = (HUMAN_NEXT if review == 'human' else CLAUDE_NEXT) + TRIM_NOTE
     return summary
 
 
@@ -73,6 +75,74 @@ def get_contig_details(project_path: str, contig: str) -> dict:
     reverse reads so they match the contig orientation). None means the read does not cover the column.
     """
     return review.contig_details(review.load_project(_path(project_path)), contig)
+
+
+@mcp.tool()
+def get_column_qualities(project_path: str, contig: str, start: int | None = None,
+                         end: int | None = None) -> dict:
+    """Every alignment column in start..end (0-based, inclusive; default: whole contig) with the consensus
+    call and each read's [base, Phred]. Use it to pick a trim point when the user asks for quality-based
+    end trimming (e.g. a rolling mean of Phred falling below a threshold).
+    """
+    return review.column_qualities(review.load_project(_path(project_path)), contig, start, end)
+
+
+@mcp.tool()
+def describe_contig_ends(project_path: str, contig: str | None = None,
+                         options: list[dict] | None = None) -> list[dict]:
+    """Start here for end trimming. For each contig (all unless ``contig`` is given): read layout, the
+    region two reads cover, each single-read end (length, mean Phred, N count, longest N run, N columns),
+    and what candidate rules would keep (range, length, N count). Nothing is changed.
+
+    ``options`` overrides the compared rules: a list of {"label": str, plus any suggest_quality_trim
+    argument (window, min_mean_phred, max_n_run, single_read_ends_only, keep_isolated_n), or
+    "overlap_only": true}. The default compares keep-all, rolling means, N-run cuts and overlap-only.
+    """
+    return review.describe_contig_ends(review.load_project(_path(project_path)), contig, options)
+
+
+@mcp.tool()
+def suggest_quality_trim(project_path: str, contig: str | None = None, window: int = 10,
+                         min_mean_phred: float | None = 20, single_read_ends_only: bool = True,
+                         keep_isolated_n: bool = True, max_n_run: int | None = None) -> list[dict]:
+    """Dry run of one end-trimming rule (all contigs unless ``contig`` is given); nothing is changed.
+
+    Rolling mean: column quality = highest Phred among covering reads; from each end, columns are trimmed
+    while the mean over the next ``window`` columns is below ``min_mean_phred`` (null turns this off).
+    keep_isolated_n leaves single Ns out of the mean. N runs: ``max_n_run`` cuts each end just before
+    the first run of that many consecutive Ns, walking outward from the two-read region. With both, the
+    stricter cut wins. single_read_ends_only never cuts into the region two reads cover. Show the user
+    the result, then pass the non-null ``edit`` values to apply_review_edits once they agree.
+    Prefer this over computing a trim rule yourself from get_column_qualities.
+    """
+    return review.suggest_quality_trim(review.load_project(_path(project_path)), contig, window,
+                                       min_mean_phred, single_read_ends_only, keep_isolated_n, max_n_run)
+
+
+@mcp.prompt()
+def trim_contig_ends(project_path: str, rule: str = '') -> str:
+    """Guided end trimming of a batch result: compare rules, agree on one, apply it, export."""
+    ask = f'The user\'s rule: "{rule}".' if rule else 'The user has not given a rule yet.'
+    return f"""Help me trim the ends of the contigs in {project_path} with the namiyomi tools. {ask}
+
+1. Call describe_contig_ends on the project. Summarise for me, in a short table per contig that has
+   single-read ends: the two-read region, each single-read end's length, mean Phred, N count and longest
+   N run, and what each compared rule would keep (length, N count). Leave out contigs where no rule
+   changes anything, but say how many there were.
+2. If I gave a rule, translate it into suggest_quality_trim arguments and say exactly how you read it
+   (e.g. which ends, how isolated Ns are handled). If my rule cannot be expressed with those arguments,
+   say so instead of approximating it silently. If I gave no rule, recommend one from the comparison
+   and explain the trade-off (bases kept versus Ns kept). Batch reads were already Mott-trimmed, so a
+   rolling-mean rule often changes little; say so if that is the case.
+3. Run suggest_quality_trim with the agreed arguments and show the proposed cuts. Do not apply anything
+   until I confirm.
+4. After I confirm, call apply_review_edits with the non-null edit values, writing project.reviewed.json
+   next to the project (if that file already exists, use it as the input so earlier review edits are
+   kept, and write to a new file name). Then export_fasta from the reviewed project and report the
+   files written and the review_report.md entry.
+
+Trimming is my decision; you are helping me apply it consistently. Never trim into the region two reads
+cover unless I ask for that explicitly."""
 
 
 @mcp.tool()
@@ -99,7 +169,10 @@ def apply_review_edits(project_path: str, output_path: str, edits: list[dict],
 
     Each edit: {"contig": name, "column": int, "action": "set" or "confirm", "value": "A" (for set),
     "reason": "why, citing the peaks"}. "set" changes the consensus call; "confirm" marks the flag
-    reviewed without changing it. Every edit is logged with its reason in review_report.md next to
+    reviewed without changing it. To trim a contig's ends: {"contig": name, "action": "trim",
+    "keep_from": int, "keep_to": int, "reason": "the rule used"}; columns outside the range are deleted
+    from the consensus. Trim only when the user asked for it, using their rule (suggest_quality_trim
+    gives ready edits for rolling-mean Phred rules). Every edit is logged with its reason in review_report.md next to
     output_path. Do not edit columns you are unsure about; leave them for the user and pass them in
     ``unresolved`` as {"contig": name, "column": int, "reason": "why"}. Every flag still open is
     listed under "Left unresolved" in the report.

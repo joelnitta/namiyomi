@@ -111,9 +111,12 @@ On Windows use `C:\\path\\to\\namiyomi\\.venv\\Scripts\\python.exe` and `C:\\pat
 | `run_batch` | Run the batch (same as the CLI). `review` = `human` (default) or `claude`. |
 | `list_contigs` | Contigs of a saved `project.json`, filtered by `clean` / `needs_review` / `single_read`. |
 | `get_contig_details` | Flagged columns, each source read's call, Phred score and A/C/G/T peak heights. |
+| `get_column_qualities` | Every column of a contig (or a range) with each read's base and Phred, for choosing a trim point. |
+| `describe_contig_ends` | Per contig: read layout, the two-read region, each single-read end (length, mean Phred, `N`s, longest `N` run), and what candidate trimming rules would keep. |
+| `suggest_quality_trim` | Dry run of one trimming rule (rolling-mean Phred and/or cut before a run of `N`s; single-read ends only; isolated `N`s kept); returns ready `trim` edits. |
 | `find_sequence` | Search a contig's consensus (both strands). |
 | `render_trace` | PNG of the chromatograms around a column, so Claude can look at the peaks. |
-| `apply_review_edits` | Apply review verdicts to a **new** project file and log reasons in `review_report.md`, plus the flags left unresolved (with optional reasons). |
+| `apply_review_edits` | Apply review verdicts (set a base, confirm a flag, or trim the ends) to a **new** project file and log reasons in `review_report.md`, plus the flags left unresolved (with optional reasons). |
 | `export_fasta` | FASTA per marker from a saved project. From `*.reviewed.json` the files are `<marker>.reviewed.fasta`, so the unedited FASTA is kept. |
 
 ### Choosing who reviews the flags
@@ -130,7 +133,28 @@ Most flags in typical runs are single-read positions: low-Phred bases at the 3â€
 other read's coverage. Such contigs are longer than the clean ones. These positions cannot be confirmed by a
 second read. How far to keep them is a judgement call: trimming strictly to the region both reads cover can
 discard many usable bases, so trimming the single-read end by quality and accepting an occasional `N` is often a
-better balance. Do it in the app.
+better balance. Do it in the app, or ask Claude for help.
+
+### End trimming with Claude
+
+1. **Compare.** `describe_contig_ends` lists each contig's single-read ends and what these rules would keep
+   (length and `N` count): keep everything; rolling mean Q20 over 10 columns; rolling mean Q30 over 20;
+   cut before a run of 4, 3 or 1 `N`; the region covered by two reads. Pass `options` to compare other rules.
+2. **Preview.** `suggest_quality_trim` applies one rule and returns the cut per contig. Rules:
+   - `min_mean_phred` with `window`: column quality is the highest Phred of the covering reads; each end is
+     trimmed while the mean of the next `window` columns is below the threshold. With `keep_isolated_n`
+     (default), a single `N` is left out of the mean.
+   - `max_n_run`: walking outward from the two-read region, cut just before the first run of that many `N`s.
+   - Both together: the stricter cut wins at each end. `single_read_ends_only` (default) never cuts into the
+     two-read region.
+3. **Apply.** After you confirm, Claude passes the returned `trim` edits to `apply_review_edits`. This deletes
+   the consensus columns outside the kept range (the same as deleting them in the app) and logs the rule in
+   `review_report.md`. Then `export_fasta` writes `<marker>.reviewed.fasta`.
+
+The MCP prompt `trim_contig_ends` (in Claude Code: `/mcp__namiyomi__trim_contig_ends`) walks Claude through
+these steps. Claude trims only when asked. Batch reads are already Mott-trimmed at Q20, so a rolling-mean
+rule often removes little; on reads with long single-read tails, the number of `N`s you accept usually
+decides the length.
 
 Claude's reading of a chromatogram is a second opinion, not ground truth. As the README says, check exported
 sequences before using them in analysis. In either mode `project.json` stays the untouched machine output, so
