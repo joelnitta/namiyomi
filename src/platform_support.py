@@ -36,6 +36,20 @@ def menu_accelerator(value):
     return value.replace('⇧', shift).replace('⌘', modifier)
 
 
+def edit_modifier_mask():
+    """Tk event.state bits that turn a letter key into a shortcut, not a base edit.
+
+    Lock keys must not be included: Windows Tk reports Num Lock as 0x08 (Mod1)
+    and Scroll Lock as 0x20, while Alt is 0x20000. On Aqua, 0x08 is Command and
+    0x10 is Option. On X11, 0x08 is usually Alt and 0x10 Num Lock.
+    """
+    if sys.platform == 'darwin':
+        return 0x04 | 0x08 | 0x10
+    if sys.platform == 'win32':
+        return 0x04 | 0x20000
+    return 0x04 | 0x08
+
+
 def context_menu_bindings():
     # Control-click is a macOS secondary click, but means multi-select on Windows.
     return ('<Button-2>', '<Button-3>', '<Control-Button-1>') if sys.platform == 'darwin' else ('<Button-3>',)

@@ -22,7 +22,7 @@ from trace_plot import trace_samples
 from app_info import APP_NAME, APP_VERSION, DEVELOPER, LOCATION
 from sequence_find import find_matches,consensus_coordinates,ordered_entries,validate_find_settings
 from preferences import ConfirmationPreferences
-from platform_support import context_menu_bindings,menu_accelerator,shortcut_label,resource_root
+from platform_support import context_menu_bindings,edit_modifier_mask,menu_accelerator,shortcut_label,resource_root
 
 COLORS={'A':'#008234','C':'#1559c5','G':'#161616','T':'#d1272c'}
 MONO_FAMILY='Consolas' if sys.platform=='win32' else 'Menlo'
@@ -501,9 +501,8 @@ class Editor(TkinterDnD.Tk):
 
     def key_edit(self,event):
         # Command/control combinations and text fields must not become edits.
-        modifiers=0x04|0x08|(0x10 if sys.platform=='darwin' else 0)
-        # On Windows 0x10 can be Num Lock, not Aqua's Command modifier.
-        if not self.canvas_focus() or event.state & modifiers:return
+        # Lock keys (Windows Num Lock is 0x08) must not block typing.
+        if not self.canvas_focus() or event.state & edit_modifier_mask():return
         base=event.char.upper()
         if len(base)==1 and base in ALPHABET:
             self.edit_base(base);return 'break'

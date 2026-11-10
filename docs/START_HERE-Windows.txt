@@ -1,4 +1,4 @@
-namiyomi ver 0.0.1 — Windows x64
+namiyomi ver 0.1.0 — Windows x64
 
 A focused AB1 chromatogram editor and Sanger contig assembler.
 Free software under the MIT License.
@@ -44,7 +44,7 @@ Help > How To provides numbered instructions.
 
 KEEP YOUR DATA SAFE
 
-Version 0.0.1 is an early release. Keep original AB1 files and independent backups.
+Version 0.1.0 is an early release. Keep original AB1 files and independent backups.
 Project JSON references the AB1 files rather than embedding them. When moving a
 project to another computer, include those AB1 files and preserve their relative
 folder structure. Recovery snapshots do not replace regular saving or backups.

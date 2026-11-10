@@ -1,4 +1,4 @@
-# namiyomi ver 0.0.1
+# namiyomi ver 0.1.0
 
 A focused desktop editor for Sanger sequencing: inspect AB1 chromatograms, trim read ends, assemble selected reads, review the consensus, and export FASTA.
 
@@ -6,12 +6,12 @@ namiyomi keeps the sequence and its supporting traces in one workspace. It is de
 
 ## Download namiyomi here
 
-- **[Download for macOS — Apple Silicon, macOS 15+](https://github.com/yoneoka-katsuhiro/namiyomi/releases/download/v0.0.1/namiyomi-0.0.1-macOS-arm64-development.zip)**
-- **[Download for Windows — Windows 10/11 x64, experimental](https://github.com/yoneoka-katsuhiro/namiyomi/releases/download/v0.0.1/namiyomi-0.0.1-Windows-x64.zip)**
+- **[Download for macOS — Apple Silicon, macOS 15+](https://github.com/yoneoka-katsuhiro/namiyomi/releases/download/v0.1.0/namiyomi-0.1.0-macOS-arm64-development.zip)**
+- **[Download for Windows — Windows 10/11 x64, experimental](https://github.com/yoneoka-katsuhiro/namiyomi/releases/download/v0.1.0/namiyomi-0.1.0-Windows-x64.zip)**
 
 These ZIPs contain the ready-to-run application. No Python installation is required. The files in the repository are for developers; you do not need to download them to use namiyomi.
 
-[Release notes](https://github.com/yoneoka-katsuhiro/namiyomi/releases/tag/v0.0.1) · [日本語](README-ja.md) · [Build and distribution guide](DISTRIBUTION.md)
+[Release notes](https://github.com/yoneoka-katsuhiro/namiyomi/releases/tag/v0.1.0) · [日本語](README-ja.md) · [Build and distribution guide](DISTRIBUTION.md)
 
 ![The consensus sequence above its aligned source chromatograms in namiyomi on macOS. The displayed data are synthetic.](docs/images/namiyomi-contig-macos.png)
 
@@ -21,8 +21,8 @@ These ZIPs contain the ready-to-run application. No Python installation is requi
 
 | Package | System | Release status |
 | --- | --- | --- |
-| `namiyomi-0.0.1-macOS-arm64-development.zip` | Apple Silicon, macOS 15 or later | Tested on the developer's Mac. Ad-hoc signed; not Developer ID signed or Apple notarized. Not an Intel or universal build. |
-| `namiyomi-0.0.1-Windows-x64.zip` | Windows 10/11, x64 | Experimental. Full hands-on testing on a physical Windows PC has not been completed. Errors may occur. |
+| `namiyomi-0.1.0-macOS-arm64-development.zip` | Apple Silicon, macOS 15 or later | Tested on the developer's Mac. Ad-hoc signed; not Developer ID signed or Apple notarized. Not an Intel or universal build. |
+| `namiyomi-0.1.0-Windows-x64.zip` | Windows 10/11, x64 | Experimental. Full hands-on testing on a physical Windows PC has not been completed. Errors may occur. |
 
 Download the appropriate ZIP from [Releases](https://github.com/yoneoka-katsuhiro/namiyomi/releases). Standalone packages include Python and their dependencies; a separate Python installation is not required.
 
@@ -32,7 +32,7 @@ The compressed downloads are approximately **41 MiB for macOS** and **26 MiB for
 
 **Windows:** extract the complete `namiyomi` folder, then open `namiyomi.exe`. Keep the `_internal` folder beside the executable; do not copy the executable out on its own. The executable is not Authenticode signed, so Windows may display a security warning. The Windows build workflow uses Windows Server 2022 for automated build and startup checks; consult [Actions](https://github.com/yoneoka-katsuhiro/namiyomi/actions) for the outcome of each run. Those checks do not replace hands-on testing of the complete workflow on Windows 10/11.
 
-Version 0.0.1 is an early release. Back up your AB1 files and projects, and check exported sequences before using them in an analysis.
+Version 0.1.0 is an early release. Back up your AB1 files and projects, and check exported sequences before using them in an analysis.
 
 ## What namiyomi does
 
@@ -116,7 +116,7 @@ namiyomi is released under the [MIT License](LICENSE.txt). Bundled dependencies 
 
 Suggested citation:
 
-> Yoneoka, K. (2026). *Namiyomi: Sanger chromatogram review and contig assembly* (Version 0.0.1) [Computer software]. GitHub. https://github.com/yoneoka-katsuhiro/namiyomi
+> Yoneoka, K. (2026). *Namiyomi: Sanger chromatogram review and contig assembly* (Version 0.1.0) [Computer software]. GitHub. https://github.com/yoneoka-katsuhiro/namiyomi
 
 In text, cite **Yoneoka (2026)** or **(Yoneoka, 2026)**.
 

@@ -1,4 +1,4 @@
-# namiyomi ver 0.0.1
+# namiyomi ver 0.1.0
 
 **AB1の波形確認から、トリミング、コンティグ作成、配列編集、FASTA出力まで。**
 
@@ -6,12 +6,12 @@ namiyomiは、日常的なサンガーシーケンスの確認作業に用途を
 
 ## ここからアプリをダウンロードできます
 
-- **[macOS版をダウンロード — Apple Silicon、macOS 15以降](https://github.com/yoneoka-katsuhiro/namiyomi/releases/download/v0.0.1/namiyomi-0.0.1-macOS-arm64-development.zip)**
-- **[Windows版をダウンロード — Windows 10/11 x64、試験版](https://github.com/yoneoka-katsuhiro/namiyomi/releases/download/v0.0.1/namiyomi-0.0.1-Windows-x64.zip)**
+- **[macOS版をダウンロード — Apple Silicon、macOS 15以降](https://github.com/yoneoka-katsuhiro/namiyomi/releases/download/v0.1.0/namiyomi-0.1.0-macOS-arm64-development.zip)**
+- **[Windows版をダウンロード — Windows 10/11 x64、試験版](https://github.com/yoneoka-katsuhiro/namiyomi/releases/download/v0.1.0/namiyomi-0.1.0-Windows-x64.zip)**
 
 このZIPに、すぐに起動できるアプリが入っています。Pythonのインストールは不要です。リポジトリ内のソースやテストを個別にダウンロードする必要はありません。
 
-[リリース情報](https://github.com/yoneoka-katsuhiro/namiyomi/releases/tag/v0.0.1) · [English](README.md) · [ビルド・配布について](DISTRIBUTION.md)
+[リリース情報](https://github.com/yoneoka-katsuhiro/namiyomi/releases/tag/v0.1.0) · [English](README.md) · [ビルド・配布について](DISTRIBUTION.md)
 
 ![コンセンサス配列と、位置を揃えて表示した元リードのクロマトグラム。macOS版の画面。表示データは人工的に生成したものです。](docs/images/namiyomi-contig-macos.png)
 
@@ -21,8 +21,8 @@ namiyomiは、日常的なサンガーシーケンスの確認作業に用途を
 
 | 配布ファイル | 対象 | 確認状況 |
 | --- | --- | --- |
-| `namiyomi-0.0.1-macOS-arm64-development.zip` | Apple Silicon、macOS 15以降 | 開発者のMacで動作を確認しています。アドホック署名の開発版で、Developer ID署名・Apple公証はありません。Intel版・Universal版ではありません。 |
-| `namiyomi-0.0.1-Windows-x64.zip` | Windows 10/11、x64 | 試験公開です。実際のWindows PCによる、インポートから編集・保存・出力までの一連の操作確認は完了していません。エラーが出る可能性があります。 |
+| `namiyomi-0.1.0-macOS-arm64-development.zip` | Apple Silicon、macOS 15以降 | 開発者のMacで動作を確認しています。アドホック署名の開発版で、Developer ID署名・Apple公証はありません。Intel版・Universal版ではありません。 |
+| `namiyomi-0.1.0-Windows-x64.zip` | Windows 10/11、x64 | 試験公開です。実際のWindows PCによる、インポートから編集・保存・出力までの一連の操作確認は完了していません。エラーが出る可能性があります。 |
 
 [Releases](https://github.com/yoneoka-katsuhiro/namiyomi/releases)から使用するOSのZIPをダウンロードしてください。Pythonと必要なライブラリは同梱しているため、別途インストールする必要はありません。
 
@@ -32,7 +32,7 @@ namiyomiは、日常的なサンガーシーケンスの確認作業に用途を
 
 **Windows：** `namiyomi`フォルダ全体を展開し、`namiyomi.exe`を開きます。`_internal`フォルダは実行ファイルの隣に置き、実行ファイルだけを取り出さないでください。Authenticode署名はないため、Windowsでセキュリティ警告が出る場合があります。Windows用の自動ビルド・起動確認にはWindows Server 2022を使用します。各実行の結果は[Actions](https://github.com/yoneoka-katsuhiro/namiyomi/actions)で確認できますが、Windows 10/11実機での一連の操作確認に代わるものではありません。
 
-ver 0.0.1は初期リリースです。元のAB1とプロジェクトをバックアップし、出力配列を確認してから解析に使用してください。
+ver 0.1.0は初期リリースです。元のAB1とプロジェクトをバックアップし、出力配列を確認してから解析に使用してください。
 
 ## できること
 
@@ -116,7 +116,7 @@ namiyomiは、少数のサンガーリードを波形で確認し、コンセン
 
 引用例：
 
-> Yoneoka, K. (2026). *Namiyomi: Sanger chromatogram review and contig assembly* (Version 0.0.1) [Computer software]. GitHub. https://github.com/yoneoka-katsuhiro/namiyomi
+> Yoneoka, K. (2026). *Namiyomi: Sanger chromatogram review and contig assembly* (Version 0.1.0) [Computer software]. GitHub. https://github.com/yoneoka-katsuhiro/namiyomi
 
 本文中では **Yoneoka (2026)**、括弧内では **(Yoneoka, 2026)** と表記します。
 

@@ -41,14 +41,22 @@ class PlatformSupportTests(unittest.TestCase):
             self.assertIn('<Control-Button-1>',context_menu_bindings())
             self.assertEqual(menu_accelerator('⇧⌘S'),'Shift-Command-S')
 
-    def test_windows_numlock_does_not_disable_base_input(self):
-        controller=SimpleNamespace(canvas_focus=lambda:True,edit_base=Mock())
-        with patch('app.sys.platform','win32'):
-            self.assertEqual(Editor.key_edit(controller,SimpleNamespace(state=0x10,char='a')),'break')
-            controller.edit_base.assert_called_once_with('A')
-            controller.edit_base.reset_mock()
-            self.assertIsNone(Editor.key_edit(controller,SimpleNamespace(state=0x04,char='c')))
-            controller.edit_base.assert_not_called()
+    def test_lock_keys_do_not_disable_base_input(self):
+        # Tk state bits: Windows Num Lock 0x08, Scroll Lock 0x20, Alt 0x20000;
+        # Aqua Command 0x08, Option 0x10; X11 Alt 0x08, Num Lock 0x10.
+        cases={'win32':((0x08,0x08|0x20,0x02,0x08|0x01),(0x04,0x20000,0x08|0x04)),
+               'darwin':((0x02,0x01),(0x04,0x08,0x10)),
+               'linux':((0x10,0x02),(0x04,0x08))}
+        for platform,(typing,shortcuts) in cases.items():
+            with self.subTest(platform=platform),patch('platform_support.sys.platform',platform):
+                for state in typing:
+                    controller=SimpleNamespace(canvas_focus=lambda:True,edit_base=Mock())
+                    self.assertEqual(Editor.key_edit(controller,SimpleNamespace(state=state,char='g')),'break')
+                    controller.edit_base.assert_called_once_with('G')
+                for state in shortcuts:
+                    controller=SimpleNamespace(canvas_focus=lambda:True,edit_base=Mock())
+                    self.assertIsNone(Editor.key_edit(controller,SimpleNamespace(state=state,char='c')))
+                    controller.edit_base.assert_not_called()
 
     def test_windows_recovery_queries_process_without_os_kill(self):
         with patch('recovery.sys.platform','win32'), \

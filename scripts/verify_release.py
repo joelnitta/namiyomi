@@ -46,7 +46,7 @@ def verify(path):
         else:
             root='namiyomi/namiyomi.app/Contents/'
             info=plistlib.loads(archive.read(root+'Info.plist'))
-            if info.get('CFBundleIdentifier')!='local.yoneoka.namiyomi' or info.get('CFBundleShortVersionString')!='0.0.1':
+            if info.get('CFBundleIdentifier')!='local.yoneoka.namiyomi' or info.get('CFBundleShortVersionString')!='0.1.0':
                 raise ValueError('Unexpected macOS application identity/version.')
             executable=archive.read(root+'MacOS/namiyomi')
             if executable[:4]!=b'\xcf\xfa\xed\xfe' or struct.unpack_from('<I',executable,4)[0]!=0x100000c:
