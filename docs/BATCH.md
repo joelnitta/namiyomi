@@ -6,17 +6,22 @@ Everything runs locally; no sequence data is uploaded by this software.
 
 ## Install
 
+Python 3.10 or later is required (the `mcp` package needs it). The `/usr/bin/python3` that ships with macOS is
+3.9; install a newer Python from python.org or Homebrew. On macOS the command is `python3`, not `python`.
+
 ```
-python -m venv .venv
+python3 -m venv .venv                                # Windows: py -m venv .venv
 .venv/bin/pip install -r requirements/batch.txt      # Windows: .venv\Scripts\pip
 ```
 
-`requirements/batch.txt` does not need tkinter, tkinterdnd2 or PyInstaller.
+`requirements/batch.txt` does not need tkinter, tkinterdnd2 or PyInstaller. To also open projects in the window
+from source, add `requirements/runtime.txt` (it provides `tkinterdnd2`) and run
+`.venv/bin/python src/app.py --project OUT/project.json`.
 
 ## Command line
 
 ```
-python src/batch.py --input ~/seq/run42 --output ~/seq/run42_out [--sheet sheet.csv] [--allow-single] [--dry-run]
+python src/batch.py --input ~/projects/run42/reads --output ~/projects/run42/results [--sheet sheet.csv] [--allow-single] [--dry-run]
 ```
 
 - `--output` is required and must be a different folder from `--input`.
@@ -47,7 +52,7 @@ python src/batch.py --input ~/seq/run42 --output ~/seq/run42_out [--sheet sheet.
 |---|---|
 | `clean` | Two or more reads assembled, not stale, no flagged columns. |
 | `needs_review` | Assembled, but one or more columns are flagged (conflicting high-quality calls, internal gaps, `N`). |
-| `single_read` | One read only. Not exported unless `--allow-single`. |
+| `single_read` | One usable read only. This includes pairs where the other read was trimmed to nothing (reported). Not exported unless `--allow-single`. |
 | `failed` | Assembly raised (e.g. no sufficient overlap); the error is reported. One failing group never stops the batch. |
 
 Also reported: AB1 files that could not be loaded, reads trimmed to nothing (these are left out of assembly
@@ -65,13 +70,22 @@ are deterministic; `project.json` contains random read IDs, so it differs byte-f
 
 Add the server (use absolute paths to the venv's Python and to `src/mcp_server.py`).
 
-**Claude Code**
+**Claude Code**: run from the namiyomi folder.
 
 ```
-claude mcp add namiyomi -- /path/to/namiyomi/.venv/bin/python /path/to/namiyomi/src/mcp_server.py
+# macOS
+claude mcp add -s user namiyomi -- "$(pwd)/.venv/bin/python" "$(pwd)/src/mcp_server.py"
+# Windows (PowerShell)
+claude mcp add -s user namiyomi -- "$PWD\.venv\Scripts\python.exe" "$PWD\src\mcp_server.py"
 ```
 
-**Claude Desktop**: edit the config file and restart the app.
+Use `-s user`. Without it Claude Code uses the *local* scope, which only applies in the folder where the command
+was run (the namiyomi folder), so the tools would be missing when you start Claude in your data folder.
+Check with `claude mcp list` (expect `namiyomi: … ✔ Connected`), then start a new session: MCP tools are loaded
+only when a session starts. In a terminal, quit and run `claude` again; in VS Code, start a new conversation or
+run *Developer: Reload Window*.
+
+**Claude Desktop**: edit the config file, then quit the app fully and reopen it.
 
 - macOS: `~/Library/Application Support/Claude/claude_desktop_config.json`
 - Windows: `%APPDATA%\Claude\claude_desktop_config.json`
@@ -118,7 +132,7 @@ you can always compare, or switch to human review of the same batch.
 
 ### Example
 
-> Run the batch on ~/seq/run42 with sheet.csv, output to ~/seq/run42_out.
+> Run the batch on ~/projects/run42/reads with sheet.csv, output to ~/projects/run42/results.
 
 Claude calls `scan_folder`, then `run_batch`, and reports e.g. "52 clean, 5 needs review, 2 single-read, 1 failed".
 Add "and review the flags yourself" to switch to `review=claude`.

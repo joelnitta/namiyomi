@@ -95,19 +95,36 @@ For dozens or hundreds of reads, namiyomi can also run without the window: a com
 
 ### Set up (once)
 
+You need Python 3.10 or later. Check with `python3 --version` (Windows: `py --version`). The `python3` that comes with macOS is 3.9, which is too old; install a newer one from [python.org](https://www.python.org/downloads/) or Homebrew. In a terminal, from the namiyomi folder (the one with this README):
+
+macOS:
+
 ```
-python -m venv .venv
-.venv/bin/pip install -r requirements/batch.txt     # Windows: .venv\Scripts\pip
-claude mcp add namiyomi -- /full/path/to/namiyomi/.venv/bin/python /full/path/to/namiyomi/src/mcp_server.py
+python3 -m venv .venv
+.venv/bin/pip install -r requirements/batch.txt
+claude mcp add -s user namiyomi -- "$(pwd)/.venv/bin/python" "$(pwd)/src/mcp_server.py"
 ```
 
-The last line is for Claude Code. For Claude Desktop, add the same command to its configuration file; [docs/BATCH.md](docs/BATCH.md) gives the file locations for macOS and Windows. Restart the assistant so that it sees the new tools.
+Windows (PowerShell):
+
+```
+py -m venv .venv
+.venv\Scripts\pip install -r requirements\batch.txt
+claude mcp add -s user namiyomi -- "$PWD\.venv\Scripts\python.exe" "$PWD\src\mcp_server.py"
+```
+
+The last line registers the server with Claude Code. `-s user` makes the tools available in every folder, not only in the namiyomi folder, so you can then start the assistant wherever your data are. For Claude Desktop, add the same command to its configuration file instead; [docs/BATCH.md](docs/BATCH.md) gives the file locations for macOS and Windows.
+
+Then check and restart:
+
+1. `claude mcp list` should show `namiyomi: … ✔ Connected`.
+2. Restart the assistant, because the tools are loaded only when a session starts. Claude Code in a terminal: quit and run `claude` again. Claude Code in VS Code: start a new conversation, or run **Developer: Reload Window**. Claude Desktop: quit the app fully and reopen it.
 
 ### Fully automatic run with an AI assistant
 
-Put the AB1 files in one folder and ask in plain language, for example:
+Make a folder for the project with the AB1 files in a subfolder, for example `~/projects/rbcL-2026/reads`. Start the assistant in the project folder (for Claude Code: `cd ~/projects/rbcL-2026`, then `claude`) and ask in plain language, for example:
 
-> Run the batch on `~/Desktop/reads`, write the results to `~/Desktop/reads_out`, and review the flagged positions yourself.
+> Run the batch on `reads`, write the results to `results`, and review the flagged positions yourself.
 
 The assistant then:
 
@@ -120,13 +137,15 @@ Everything is written to the output folder; **your AB1 files are never modified*
 
 | File | Contents |
 | --- | --- |
-| `project.json` | The unedited machine result. Open it with **File > Import Previous Project**. |
+| `project.json` | The unedited machine result. Open it in the window (see below). |
 | `project.reviewed.json` | A copy with the assistant's edits, only if it reviewed. Open it the same way; positions it left unresolved are still marked as review flags. |
 | `review_report.md` | Every edit with its reason, to check or undo. |
 | `summary.tsv`, `summary.json` | One row per contig with its category, reads and flagged columns. |
 | `*.fasta` | One file per marker (`auto.fasta` with the default grouping), from the unedited run. Ask the assistant to export the reviewed project to get FASTA files with its edits. Single-read sequences are exported only if you ask. |
 
-Without the review request (or by asking for "human review"), the assistant stops after sorting the results and hands you `project.json` to check in the window as usual. You can also use the batch tool without any AI: `python src/batch.py --input FOLDER --output OUT_FOLDER` (add `--dry-run` to preview the groups).
+To open a project, use **File > Import Previous Project** in the namiyomi application. If you only have the source code, install the window's extra dependency once (`.venv/bin/pip install -r requirements/runtime.txt`; Windows: `.venv\Scripts\pip`) and run `.venv/bin/python src/app.py --project OUT_FOLDER/project.reviewed.json`. You can also ask the assistant to open it for you.
+
+Without the review request (or by asking for "human review"), the assistant stops after sorting the results and hands you `project.json` to check in the window as usual. You can also use the batch tool without any AI: `.venv/bin/python src/batch.py --input FOLDER --output OUT_FOLDER` (add `--dry-run` to preview the groups).
 
 ### What to keep in mind
 
