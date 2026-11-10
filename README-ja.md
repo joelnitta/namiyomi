@@ -91,16 +91,20 @@ AUTOは、各接頭辞が「同一個体の同一領域」を表す場合だけ�
 
 ## 他のソフトとの使い分け
 
-サンガーデータを扱える無償・クロスプラットフォームのソフトは、namiyomi以外にもあります。違いは、主に作業の範囲と画面の構成です。[詳しい比較表](docs/COMPARISON-ja.md)では、ChromasPro、Geneious Primeのほか、GitHub上のSeqTrace、sangeranalyseR、Tracyも取り上げています。公式に確認できた機能と画面設計上の好みを分け、未測定の速度・精度の優位性は主張していません。
+サンガーデータを扱える無償・クロスプラットフォームのソフトは、namiyomi以外にもあります。違いは、主に作業の範囲と画面の構成です。[詳しい比較表](docs/COMPARISON-ja.md)では、Sequencher、CodonCode Aligner、Geneious Prime、GENETYX / ATGC、ChromasProのほか、GitHub上のSeqTrace、sangeranalyseR、Tracyも取り上げています。公式に確認できた機能と画面設計上の好みを分け、未測定の速度・精度の優位性は主張していません。
 
 | ソフト | ライセンス・料金体系 | 開発元が案内するOS | 主な用途 |
 | --- | --- | --- | --- |
-| **namiyomi** | 無償、MITライセンス | macOS、Windows試験版 | AB1の確認、選択リードのコンティグ作成、コンセンサス編集、FASTA出力。 |
+| **namiyomi** | **無償**、MITライセンス。ライセンス料・認証・定期課金なし | macOS、Windows試験版 | **無償でAB1の確認からコンティグ作成まで**：ファイル名の接頭辞でまとめて一括作成する自動コンティグ（AUTO）と、選択リードからの手動コンティグ、波形を見ながらのコンセンサス編集、FASTA出力を1つの画面で。 |
+| [Sequencher](https://genecodes.com/sequencher-features/sanger-sequencing) | 有償。[買い切りライセンス](https://genecodes.com/support/faq)、6か月・12か月のプロジェクトライセンス、15日間の評価版 | Windows、Mac。FAQには、ver 5.4.6は64-bitのmacOSに非対応で、64-bit Mac版はベータ版と記載 | Sangerのアセンブリ、トリミング、曖昧な塩基やヘテロ接合の確認、[Assemble by Name](https://genecodes.com/sequencher-features/automated-analysis)による一括アセンブリ、NGS機能。 |
+| [CodonCode Aligner](https://codoncode.com/aligner/features.htm) | 有償。[買い切りライセンス](https://codoncode.com/aligner/aligner_prices.htm)と任意の年間保守、30日間の試用版 | [Windows 7～11（64-bit）、macOS 10.12以降](https://codoncode.com/aligner/download.htm) | Sangerのアセンブリと波形編集、末端トリミング、Assemble by Name、ヘテロ接合・変異検出、クローニング支援。 |
+| [Geneious Prime](https://www.geneious.com/tutorials/assembling-chromatograms) | 有償。現行の[公開プラン](https://www.geneious.com/pricing)は年額制、試用版あり | Windows、macOS、Linux | 分子生物学の統合環境。Sangerのトリミング、アセンブリ、波形・コンセンサス編集、Assemble by Name、ワークフロー。 |
+| [GENETYX](https://www.genetyx.co.jp/genetyx_series/genetyx-ver-18/) / [ATGC](https://www.genetyx.co.jp/genetyx_serie/atgc-win-ver-12/) | 有償。[買い切りで年間利用料なし](https://www.genetyx.co.jp/prices/)、保守は任意 | Windows 11。[ATGC-MAC](https://www.genetyx.co.jp/genetyx_series/atgc-mac-ver-10/)はmacOS Ventura以降（Apple SiliconではRosetta 2が必要） | 国産の遺伝情報処理ソフト。アセンブラーのATGC（単体販売もあり）は、大量のフラグメントを結合し、波形の信頼度を考慮してコンセンサスを決定。配列と波形の同時表示、ベクター配列の除去にも対応。 |
 | [Chromas](https://technelysium.com.au/wp/chromas/) | アプリは無償。任意のPeakTraceサービスは別体系 | Windows | 単一の波形の表示・編集、トリミング、検索、配列出力。複数リードのアセンブリには、開発元がChromasProを案内しています。 |
 | [ChromasPro](https://technelysium.com.au/wp/chromaspro/) | 有償、試用版あり | Windows | リードのアセンブリとグラフィカルなコンセンサス編集に加え、各種配列解析。 |
 | [UGENE](https://ugene.net/) | 無償、オープンソース | Windows、macOS、Linux | 統合型のバイオインフォマティクス環境。Sanger editorと[CAP3連携](https://ugene.net/docs/extensions/cap3/)を含みます。 |
 
-namiyomiは、少数のサンガーリードを波形で確認し、コンセンサスを取り出す用途を想定しています。より広い解析、別のファイル形式、既存の検証済みワークフローが必要な場合は、それに合うソフトを選んでください。他製品に対する速度・精度の優位性を主張する比較ではありません。比較表は2026年11月4日に各開発元の公式説明を確認して作成しました。
+namiyomiは、サンガーリードを波形で確認し、自動または選択したリードからコンティグを作り、コンセンサスを取り出す作業を、ライセンス料をかけずに行う用途を想定しています。より広い解析、柔軟な一括処理ルール、別のファイル形式、既存の検証済みワークフロー、開発元のサポートが必要な場合は、それに合うソフトを選んでください。他製品に対する速度・精度の優位性を主張する比較ではありません。比較表は2026年11月4日に各開発元の公式説明を確認して作成し、Sequencher、CodonCode Aligner、GENETYX / ATGCは2026年11月10日に追加しました。
 
 ## 制約とデータの取り扱い
 
