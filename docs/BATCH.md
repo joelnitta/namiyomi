@@ -110,11 +110,11 @@ On Windows use `C:\\path\\to\\namiyomi\\.venv\\Scripts\\python.exe` and `C:\\pat
 | `scan_folder` | Dry run: AB1 count and proposed groups, plus sheet problems. |
 | `run_batch` | Run the batch (same as the CLI). `review` = `human` (default) or `claude`. |
 | `list_contigs` | Contigs of a saved `project.json`, filtered by `clean` / `needs_review` / `single_read`. |
-| `get_contig_details` | Flagged columns, each source read's call and Phred score. |
+| `get_contig_details` | Flagged columns, each source read's call, Phred score and A/C/G/T peak heights. |
 | `find_sequence` | Search a contig's consensus (both strands). |
 | `render_trace` | PNG of the chromatograms around a column, so Claude can look at the peaks. |
-| `apply_review_edits` | Apply review verdicts to a **new** project file and log reasons in `review_report.md`. |
-| `export_fasta` | FASTA per marker from a saved project (e.g. the reviewed one). |
+| `apply_review_edits` | Apply review verdicts to a **new** project file and log reasons in `review_report.md`, plus the flags left unresolved (with optional reasons). |
+| `export_fasta` | FASTA per marker from a saved project. From `*.reviewed.json` the files are `<marker>.reviewed.fasta`, so the unedited FASTA is kept. |
 
 ### Choosing who reviews the flags
 
@@ -123,8 +123,14 @@ On Windows use `C:\\path\\to\\namiyomi\\.venv\\Scripts\\python.exe` and `C:\\pat
 - **`review=claude`.** For each `needs_review` contig Claude reads the per-read calls and Phred scores, looks at
   `render_trace` images, and applies only the changes it is confident about (a changed call, or "confirm
   as is") to a copy, `project.reviewed.json`. Each edit and its reason is written to `review_report.md`.
-  Anything uncertain is left unedited and listed for you. You then spot-check the report and the reviewed
-  project in the app.
+  Anything uncertain is left unedited and listed under *Left unresolved* in the report. You then spot-check
+  the report and the reviewed project in the app.
+
+Most flags in typical runs are single-read positions: low-Phred bases at the 3′ end of one read, beyond the
+other read's coverage. Such contigs are longer than the clean ones. These positions cannot be confirmed by a
+second read. How far to keep them is a judgement call: trimming strictly to the region both reads cover can
+discard many usable bases, so trimming the single-read end by quality and accepting an occasional `N` is often a
+better balance. Do it in the app.
 
 Claude's reading of a chromatogram is a second opinion, not ground truth. As the README says, check exported
 sequences before using them in analysis. In either mode `project.json` stays the untouched machine output, so

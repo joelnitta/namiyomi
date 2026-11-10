@@ -18,7 +18,9 @@ HUMAN_NEXT = ('Review mode is "human": do NOT edit anything. Report the triage t
 CLAUDE_NEXT = ('Review mode is "claude": for each needs_review contig call get_contig_details, then render_trace '
                'for every flagged column and judge the peaks. Apply only confident changes with '
                'apply_review_edits (writes a NEW reviewed project plus review_report.md); leave anything '
-               'uncertain unedited and list it for the user. Your reading of traces is a second opinion; say so.')
+               'uncertain unedited, pass it as unresolved with a short reason so it is listed in the report, '
+               'and list it for the user. Then export_fasta from the reviewed project (files are named '
+               '<marker>.reviewed.fasta). Your reading of traces is a second opinion; say so.')
 
 
 def _path(value):
@@ -66,7 +68,10 @@ def list_contigs(project_path: str, filter: str | None = None) -> list[dict]:
 
 @mcp.tool()
 def get_contig_details(project_path: str, contig: str) -> dict:
-    """Flagged columns of one contig (0-based alignment columns), with each source read's base call and Phred."""
+    """Flagged columns of one contig (0-based alignment columns), with each source read's base call, Phred
+    and peak_heights (raw A/C/G/T channel heights at that read's peak, already complemented for
+    reverse reads so they match the contig orientation). None means the read does not cover the column.
+    """
     return review.contig_details(review.load_project(_path(project_path)), contig)
 
 
@@ -88,20 +93,27 @@ def render_trace(project_path: str, contig: str, column: int, window: int = 15) 
 
 
 @mcp.tool()
-def apply_review_edits(project_path: str, output_path: str, edits: list[dict]) -> dict:
+def apply_review_edits(project_path: str, output_path: str, edits: list[dict],
+                       unresolved: list[dict] | None = None) -> dict:
     """Apply review verdicts to a NEW copy of the project (the input is never overwritten).
 
     Each edit: {"contig": name, "column": int, "action": "set" or "confirm", "value": "A" (for set),
     "reason": "why, citing the peaks"}. "set" changes the consensus call; "confirm" marks the flag
     reviewed without changing it. Every edit is logged with its reason in review_report.md next to
-    output_path. Do not edit columns you are unsure about; leave them for the user.
+    output_path. Do not edit columns you are unsure about; leave them for the user and pass them in
+    ``unresolved`` as {"contig": name, "column": int, "reason": "why"}. Every flag still open is
+    listed under "Left unresolved" in the report.
     """
-    return review.apply_review_edits(_path(project_path), _path(output_path), edits)
+    return review.apply_review_edits(_path(project_path), _path(output_path), edits, unresolved=unresolved)
 
 
 @mcp.tool()
 def export_fasta(project_path: str, output_dir: str, allow_single: bool = False) -> dict:
-    """Write one FASTA per marker from a saved project (use the reviewed project after review)."""
+    """Write one FASTA per marker from a saved project (use the reviewed project after review).
+
+    From a reviewed project (*.reviewed.json) the files are named <marker>.reviewed.fasta, so the
+    batch run's unedited <marker>.fasta in the same folder is kept.
+    """
     return review.export_fasta(_path(project_path), _path(output_dir), allow_single)
 
 

@@ -51,7 +51,7 @@ class McpToolTests(unittest.TestCase):
             [dict(contig=flagged['name'], column=col, action='set', value='C', reason='clean C peak')])
         self.assertEqual(result['still_needs_review'], [])
         files = mcp_server.export_fasta(str(self.out / 'project.reviewed.json'), str(self.out / 'final'))
-        self.assertEqual(files['fasta'], ['auto.fasta'])
+        self.assertEqual(files['fasta'], ['auto.reviewed.fasta'])
 
 
 if __name__ == '__main__':

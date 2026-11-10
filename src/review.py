@@ -6,6 +6,8 @@ GUI uses (``Contig.overrides`` for a changed call, ``Contig.black_marks`` for
 "Mark reviewed"), and always go to a NEW project file, never over the input.
 """
 import io
+import shutil
+import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
@@ -56,13 +58,22 @@ def contig_details(project, ref):
             b = source.mapping[col]
             reads.append(dict(source=index, base=None if b is None else b.base,
                               phred=None if b is None else b.quality,
-                              raw_position=None if b is None or b.raw is None else b.raw + 1))
+                              raw_position=None if b is None or b.raw is None else b.raw + 1,
+                              peak_heights=_peak_heights(project.traces[source.read_id], b, source.reverse)))
         column = contig.columns[col]
         flagged.append(dict(column=col, consensus=contig.call(col), automatic_call=column.call,
                             reason=column.reason, manual_override=str(col) in contig.overrides, reads=reads))
     return dict(name=contig.sequence_name, key=key, category=row['category'], status=contig.status,
                 overlap=contig.overlap, identity=row['identity'], columns=len(contig.columns),
                 min_quality=project.settings['min_quality'], sources=sources, flagged=flagged)
+
+
+def _peak_heights(trace, base, reverse):
+    """Raw height of each channel at the base's peak, named in contig orientation (None if no peak)."""
+    if base is None or base.raw is None:
+        return None
+    x = trace.peaks[base.raw]
+    return {COMPLEMENT[ch] if reverse else ch: values[x] for ch, values in sorted(trace.channels.items())}
 
 
 def find_sequence(project, ref, query, identity=100):
@@ -118,17 +129,20 @@ def render_trace(project, ref, column, window=15):
     return buf.getvalue()
 
 
-def apply_review_edits(project_path, output_path, edits, report_path=None, reviewer='Claude'):
+def apply_review_edits(project_path, output_path, edits, report_path=None, reviewer='Claude', unresolved=None):
     """Apply review verdicts to a COPY of the project and log each with its reason.
 
     Each edit: ``{contig, column, action: 'set'|'confirm', value (for set), reason}``.
     ``set`` changes the consensus call (like typing a base in the GUI); ``confirm`` marks the
     flag reviewed without changing the call. All edits are validated before any is applied.
+    ``unresolved`` optionally gives ``{contig, column, reason}`` for flags deliberately left alone;
+    every flag still open after the edits is listed in the report, with its reason if given.
     """
     source, output = Path(project_path).expanduser().resolve(), Path(output_path).expanduser().resolve()
     if source == output:
         raise ValueError('The reviewed project must be saved to a new file; the input is never overwritten.')
-    if not edits:
+    edits, unresolved = list(edits or []), list(unresolved or [])
+    if not edits and not unresolved:
         raise ValueError('No edits given.')
     project = load_project(source)
     plan = []
@@ -153,6 +167,13 @@ def apply_review_edits(project_path, output_path, edits, report_path=None, revie
             plan.append((key, contig, col, action, value, reason))
         except (KeyError, TypeError, ValueError) as exc:
             raise ValueError(f'Edit {n}: {exc.args[0] if isinstance(exc, KeyError) else exc}') from exc
+    notes = {}
+    for n, item in enumerate(unresolved, start=1):
+        try:
+            _, contig = resolve_contig(project, item['contig'])
+            notes[(contig.sequence_name, int(item['column']))] = str(item.get('reason', '')).strip()
+        except (KeyError, TypeError, ValueError) as exc:
+            raise ValueError(f'Unresolved item {n}: {exc.args[0] if isinstance(exc, KeyError) else exc}') from exc
     lines = []
     for key, contig, col, action, value, reason in plan:
         before = contig.call(col)
@@ -165,24 +186,46 @@ def apply_review_edits(project_path, output_path, edits, report_path=None, revie
             lines.append(f'- **{contig.sequence_name}** column {col}: confirmed {before}. {reason}')
     project.dirty = True
     project.save(output)
+    remaining = [r for r in triage(project) if r['category'] == NEEDS_REVIEW]
+    open_lines = []
+    for r in remaining:
+        for col in r['issue_columns']:
+            note = notes.get((r['name'], col))
+            open_lines.append(f'- **{r["name"]}** column {col}' + (f': {note}' if note else ''))
+    body = '\n'.join(lines) if lines else '_No edits._'
+    body += '\n\n### Left unresolved (check these in the app)\n\n' + ('\n'.join(open_lines) or '_None._')
     report = Path(report_path).expanduser() if report_path else output.with_name('review_report.md')
     stamp = datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')
     old = report.read_text(encoding='utf-8') if report.exists() else '# Review report\n'
     atomic_text(report, old.rstrip('\n') + f'\n\n## {reviewer}, {stamp}\n'
                 f'Source project: `{source.name}` (unchanged). Reviewed copy: `{output.name}`.\n\n'
-                + '\n'.join(lines) + '\n')
-    remaining = [r for r in triage(project) if r['category'] == NEEDS_REVIEW]
+                + body + '\n')
     return dict(output=str(output), report=str(report), applied=len(plan),
                 still_needs_review=[dict(name=r['name'], columns=r['issue_columns']) for r in remaining])
 
 
-def export_fasta(project_path, output_dir, allow_single=False):
-    """One FASTA per marker from a saved project (stale contigs and, unless allowed, single reads are refused)."""
+def export_fasta(project_path, output_dir, allow_single=False, suffix=None):
+    """One FASTA per marker from a saved project (stale contigs and, unless allowed, single reads are refused).
+
+    Files are named ``<marker><suffix>.fasta``. By default the suffix is ``.reviewed`` when the project file
+    is a reviewed copy (``*.reviewed.json``), so the batch run's unedited FASTA is never overwritten.
+    """
+    project_path = Path(project_path).expanduser()
+    if suffix is None:
+        suffix = '.reviewed' if project_path.stem.endswith('.reviewed') else ''
     project = load_project(project_path)
     rows = triage(project)
     skip = {r['key'] for r in rows if r['category'] == SINGLE_READ and not allow_single}
     keep = {k: c for k, c in project.contigs.items() if k not in skip}
     if not keep:
         raise ValueError('Nothing to export (single-read contigs need allow_single).')
-    files = export_markers(SimpleNamespace(contigs=keep), Path(output_dir).expanduser(), allow_single=True)
+    output_dir = Path(output_dir).expanduser()
+    output_dir.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(dir=output_dir) as tmp:
+        names = export_markers(SimpleNamespace(contigs=keep), Path(tmp), allow_single=True)
+        files = []
+        for name in names:
+            final = name[:-len('.fasta')] + suffix + '.fasta'
+            shutil.move(str(Path(tmp) / name), str(output_dir / final))
+            files.append(final)
     return dict(fasta=files, single_read_not_exported=sorted(r['name'] for r in rows if r['key'] in skip))

@@ -42,6 +42,10 @@ class ReviewTests(unittest.TestCase):
         self.assertEqual(flag['reason'], 'conflict')
         self.assertEqual(len(flag['reads']), 2)
         self.assertTrue(all(r['base'] and r['phred'] is not None for r in flag['reads']))
+        for r in flag['reads']:
+            heights = r['peak_heights']
+            self.assertEqual(sorted(heights), list('ACGT'))
+            self.assertEqual(max(heights, key=heights.get), r['base'])  # called base has the tallest peak
         self.assertEqual(review.contig_details(project, d['key'])['name'], 'Demo01')  # key works too
         with self.assertRaises(ValueError):
             review.contig_details(project, 'nope')
@@ -77,6 +81,7 @@ class ReviewTests(unittest.TestCase):
         self.assertTrue(all(contig.call(i) == orig.call(i) for i in other))
         report = Path(result['report']).read_text(encoding='utf-8')
         self.assertIn('Clean A peak in F', report)
+        self.assertIn('Left unresolved', report)
         review.apply_review_edits(self.project_path, self.out / 'second.json', [
             dict(contig='Demo01', column=self.flag, action='confirm', reason='kept N')],
             report_path=result['report'])
@@ -102,6 +107,27 @@ class ReviewTests(unittest.TestCase):
             review.apply_review_edits(self.project_path, self.project_path, [good])
         with self.assertRaises(ValueError):
             review.apply_review_edits(self.project_path, self.reviewed, [])
+
+    def test_unresolved_flags_are_listed_in_report(self):
+        result = review.apply_review_edits(self.project_path, self.reviewed, [], unresolved=[
+            dict(contig='Demo01', column=self.flag, reason='overlapping peaks')])
+        self.assertEqual(result['applied'], 0)
+        self.assertEqual(result['still_needs_review'], [dict(name='Demo01', columns=[self.flag])])
+        report = Path(result['report']).read_text(encoding='utf-8')
+        self.assertIn(f'**Demo01** column {self.flag}: overlapping peaks', report)
+        with self.assertRaises(ValueError):
+            review.apply_review_edits(self.project_path, self.out / 'x.json', [],
+                                      unresolved=[dict(contig='nope', column=1)])
+
+    def test_export_reviewed_does_not_overwrite_batch_fasta(self):
+        before = (self.out / 'auto.fasta').read_text()
+        review.apply_review_edits(self.project_path, self.reviewed, [
+            dict(contig='Demo01', column=self.flag, action='set', value='A', reason='clean A')])
+        result = review.export_fasta(self.reviewed, self.out)
+        self.assertEqual(result['fasta'], ['auto.reviewed.fasta'])
+        self.assertEqual((self.out / 'auto.fasta').read_text(), before)
+        self.assertNotEqual((self.out / 'auto.reviewed.fasta').read_text(), before)
+        self.assertEqual(sorted(p.name for p in self.out.iterdir() if p.is_dir()), [])  # temp dir removed
 
     def test_export_fasta_from_project(self):
         out = self.out / 'again'

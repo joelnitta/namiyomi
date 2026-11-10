@@ -131,7 +131,9 @@ The assistant then:
 1. **Scans** the folder and proposes groups. By default, files are grouped by the text before the first underscore, as in **Build Contig (AUTO)**. If one folder holds several loci, give it a CSV sample sheet with the columns `file,sample,marker` and ask it to use the sheet.
 2. **Builds** a contig for each group with namiyomi's own trimming, assembly and consensus code, and sorts the results: **clean**, **needs review** (flagged positions), **single read** and **failed**. One failing group never stops the others.
 3. **Reviews** each flagged position. It reads the per-read calls and Phred scores and looks at a rendered chromatogram of the position. It changes a call only when one base clearly dominates the signal, and leaves anything unclear as `N`.
-4. **Reports** what it did, with the changes and reasons for each.
+4. **Reports** what it did, with the changes and reasons for each, and the positions it left unresolved.
+
+In practice, most flags are usually not conflicts between reads but low-quality bases at the end of one read, beyond where the other read reaches (these contigs are noticeably longer than the clean ones). Those positions are read from one trace only, so the assistant often has to leave them as `N`. Trimming such ends is often worth considering when you check the contig in the window.
 
 Everything is written to the output folder; **your AB1 files are never modified**:
 
@@ -139,9 +141,10 @@ Everything is written to the output folder; **your AB1 files are never modified*
 | --- | --- |
 | `project.json` | The unedited machine result. Open it in the window (see below). |
 | `project.reviewed.json` | A copy with the assistant's edits, only if it reviewed. Open it the same way; positions it left unresolved are still marked as review flags. |
-| `review_report.md` | Every edit with its reason, to check or undo. |
+| `review_report.md` | Every edit with its reason, to check or undo, followed by the list of positions left unresolved. |
 | `summary.tsv`, `summary.json` | One row per contig with its category, reads and flagged columns. |
-| `*.fasta` | One file per marker (`auto.fasta` with the default grouping), from the unedited run. Ask the assistant to export the reviewed project to get FASTA files with its edits. Single-read sequences are exported only if you ask. |
+| `*.fasta` | One file per marker (`auto.fasta` with the default grouping), from the unedited run. Single-read sequences are exported only if you ask. |
+| `*.reviewed.fasta` | The same with the assistant's edits (for example `auto.reviewed.fasta`), written when it exports the reviewed project. The unedited FASTA is kept. |
 
 To open a project, use **File > Import Previous Project** in the namiyomi application. If you only have the source code, install the window's extra dependency once (`.venv/bin/pip install -r requirements/runtime.txt`; Windows: `.venv\Scripts\pip`) and run `.venv/bin/python src/app.py --project OUT_FOLDER/project.reviewed.json`. You can also ask the assistant to open it for you.
 
