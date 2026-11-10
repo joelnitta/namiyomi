@@ -42,7 +42,7 @@ Extract the ZIP before opening the app. A separate Python installation is not re
 
 **macOS signing:** this is an ad-hoc signed development package, not Developer ID signed or Apple notarized. macOS may warn about or block it. **Windows signing:** the executable is not Authenticode signed and may also trigger security warnings. Do not disable system security protections to install either package.
 
-**Windows verification:** full hands-on testing on a physical Windows PC has not been completed, and errors may occur. The Windows package is built and checked by the repository's [Actions workflow](https://github.com/yoneoka-katsuhiro/namiyomi/actions) on Windows Server 2022 (unit tests, source and packaged-GUI startup checks, and archive verification). These checks do not establish that the full interactive workflow has been verified on Windows 10/11.
+**Windows verification:** full hands-on testing on a physical Windows PC has not been completed, and errors may occur. The [release build](https://github.com/yoneoka-katsuhiro/namiyomi/actions/runs/42760272579) passed 161 tests on Windows Server 2022 (one platform-specific test skipped), source and packaged-GUI startup checks, and archive verification. These checks do not establish that the full interactive workflow has been verified on Windows 10/11.
 
 ## Before using your own data
 
