@@ -16,11 +16,14 @@ describe the source branch with MCP; the original v0.1.0 downloads predate it.
    **Test Connection** sends a short test prompt and can incur an API charge.
    The API account needs access to the selected model. The ChatGPT and Claude
    web app subscriptions do not act as API credentials.
-3. Click **Apply**, then **MCP > Full auto mode by LLM > OK**. Local assembly uses
-   the same filename prefix rule as **Build Contig (AUTO)**. Each prefix must
-   refer to one specimen and one locus. Previously assembled contigs keep their
-   edits and flags. If all reads are assembled, this step reports on the current
-   contigs. You can undo newly assembled contigs together with **Edit > Undo**.
+3. Click **Apply**, then open **MCP > Full auto mode by LLM**. Under **Group by**,
+   choose **Filename prefix** for names such as `sample07_F.ab1`, or **ABI sample ID**
+   for names such as `A01_64ar.ab1` and `A02_64bf.ab1`, `782f_A09.ab1` and
+   `782r_A10.ab1`, or `13a-PREMIX.ab1` and `13c-PREMIX.ab1`. ABI sample ID groups
+   matching numeric IDs with different primers within each source folder. Use
+   one locus per source folder. Unmatched files stay in the read list. Click
+   **OK** to assemble and review. **Edit > Undo** removes the contigs built by
+   that run together.
 4. Read the assembly counts and any manual review warnings above the table.
    Select a contig and click **Open Contig** to jump to its first flagged site,
    if it has one. Save or export using the normal File menu. If the API call

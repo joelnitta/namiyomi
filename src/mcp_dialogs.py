@@ -5,13 +5,15 @@ from threading import Thread
 import tkinter as tk
 from tkinter import messagebox, ttk
 
-from auto_assembly import assemble_groups, unassembled_groups
+from auto_assembly import abi_sample_groups, assemble_groups, fully_trimmed, unassembled_groups
 from llm_review import (GEMINI, KEY_ENV, LANGUAGES, MODELS, OFFLINE, PROVIDERS, ReviewError,
                         ReviewPreferences, ReviewSettings, format_report, list_models, ordered_contigs,
                         prioritize_contigs, test_connection)
 from mcp_server import quality_snapshot, read_quality
 
 TITLE = 'Full auto mode by LLM'
+PREFIX_GROUPING = 'Filename prefix'
+ABI_GROUPING = 'ABI sample ID'
 
 
 def assemble_snapshot(project, groups):
@@ -210,17 +212,47 @@ class McpDialogs:
                 self.settings()
                 return
         window, body = self._open(TITLE)
-        groups = unassembled_groups(project)
+        prefix_groups = unassembled_groups(project)
+        abi_groups = abi_sample_groups(project)
+        choices = {PREFIX_GROUPING: prefix_groups, ABI_GROUPING: abi_groups}
+        abi_ids = {rid for ids in abi_groups.values() for rid in ids}
+        unassigned = {rid for ids in prefix_groups.values() for rid in ids}
+        retained = {rid for rid in unassigned if not fully_trimmed(project.reads[rid])}
+        initial_mode = ABI_GROUPING if retained and retained <= abi_ids else PREFIX_GROUPING
+        grouping = tk.StringVar(window, value=initial_mode)
+        scope = tk.StringVar(window)
+        hint = tk.StringVar(window)
         revision = app.revision
         self._label(body, 'Run automatic assembly and review', strong=True).pack(anchor='w')
-        self._label(body, f'{len(project.reads)} reads  ·  {len(groups)} unassembled groups  ·  '
-                    f'{len(project.contigs)} existing contigs').pack(anchor='w', pady=(5, 14))
+        ttk.Label(body, textvariable=scope).pack(anchor='w', pady=(5, 14))
         ttk.Separator(body).pack(fill='x')
-        self._label(body, '1. Assemble unassigned reads on this Mac or PC', strong=True).pack(anchor='w', pady=(12, 4))
-        self._label(body, 'Groups use the filename before the first underscore. Use this only if '
-                    'each prefix is one specimen and one locus. Existing contigs keep their edits and flags.'
-                    if groups else 'All reads already belong to contigs. The report will use the current project.').pack(anchor='w')
-        self._label(body, f'2. Review quality with {config.provider}', strong=True).pack(anchor='w', pady=(12, 4))
+        self._label(body, 'Local assembly', strong=True).pack(anchor='w', pady=(12, 4))
+
+        def refresh_grouping(event=None):
+            groups = choices[grouping.get()]
+            scope.set(f'{len(project.reads)} reads  ·  {len(groups)} groups to assemble  ·  '
+                      f'{len(project.contigs)} existing contigs')
+            if not unassigned:
+                hint.set('The report will use the existing contigs.')
+            elif grouping.get() == ABI_GROUPING:
+                excluded = len(unassigned - abi_ids)
+                hint.set('Matches sample IDs in names such as A01_64ar, 782f_A09 and 13a-PREMIX. '
+                         'Use one locus per source folder. '
+                         + (f'{excluded} reads have no matching primer group.' if excluded else ''))
+            else:
+                hint.set('Groups use the filename before the first underscore. Each prefix must '
+                         'identify one specimen and one locus.')
+
+        if unassigned:
+            row = ttk.Frame(body)
+            row.pack(anchor='w', pady=(2, 5))
+            ttk.Label(row, text='Group by').pack(side='left', padx=(0, 8))
+            chooser = ttk.Combobox(row, state='readonly', textvariable=grouping, values=list(choices), width=21)
+            chooser.pack(side='left')
+            chooser.bind('<<ComboboxSelected>>', refresh_grouping)
+        ttk.Label(body, textvariable=hint, wraplength=500, justify='left').pack(anchor='w')
+        refresh_grouping()
+        self._label(body, f'Quality review with {config.provider}', strong=True).pack(anchor='w', pady=(12, 4))
         if config.provider == OFFLINE:
             sharing = 'Use a built-in report to try the workflow. Nothing is sent over the internet.'
         else:
@@ -235,7 +267,8 @@ class McpDialogs:
         cancel = ttk.Button(buttons, text='Cancel', command=window.destroy)
         cancel.pack(side='right')
         ttk.Button(buttons, text='OK',
-                   command=lambda: self._run(window, body, project, revision, groups, config)).pack(side='right', padx=6)
+                   command=lambda: self._run(window, body, project, revision, choices[grouping.get()],
+                                             config)).pack(side='right', padx=6)
         cancel.focus_set()
         self._center(window)
 

@@ -8,7 +8,9 @@ from unittest.mock import Mock, patch
 
 from Bio.Seq import Seq
 from app import Editor
+from auto_assembly import abi_sample_groups, assemble_groups
 from core import Project
+from mcp_server import quality_snapshot
 from test_core import synthetic
 
 
@@ -117,6 +119,34 @@ class AutoAssemblyScopeTests(unittest.TestCase):
         one=project.contigs[project.key('a b','auto')];two=project.contigs[project.key('a>b','auto')]
         self.assertEqual(set(one.read_ids()),set(first));self.assertEqual(set(two.read_ids()),set(second))
         self.assertEqual((one.sequence_name,two.sequence_name),('a_b','a_b_2'))
+
+    def test_abi_names_group_by_sample_and_keep_runs_separate(self):
+        project = Project()
+        expected = {}
+        for folder, names, group in (
+            ('run1', ('A01_64ar', 'A02_64bf'), '64'),
+            ('run2', ('64f_001_A09', '64r_A10'), '64_2'),
+            ('run3', ('13a-PREMIX', '13c-PREMIX'), '13'),
+        ):
+            ids = self.pair(project, 'unused', folder)
+            for rid, name in zip(ids, names):
+                project.reads[rid].path = f'/inputs/{folder}/{name}.ab1'
+            expected[group] = ids
+        for folder, name in (('run1', '98f_A09'), ('run2', '98r_A10'), ('run3', 'HiDi_G09')):
+            read, _ = synthetic(project, 'ACGT' * 30, '')
+            read.path = f'/inputs/{folder}/{name}.ab1'
+        self.assertEqual(abi_sample_groups(project), expected)
+
+    def test_fully_trimmed_read_does_not_prevent_usable_mate_from_assembling(self):
+        project = Project()
+        first, second = self.pair(project, 'sample', 'group')
+        project.reads[second].start = project.reads[second].end = 0
+        made, errors = assemble_groups(project, {'sample': [first, second]})
+        self.assertEqual(errors, [])
+        self.assertEqual(project.contigs[made[0]].read_ids(), [first])
+        summary, _ = quality_snapshot(project, made)
+        self.assertEqual((summary['reads_used'], summary['fully_trimmed_reads'], summary['single_read_contigs']),
+                         (1, 1, 1))
 
 
 if __name__=='__main__':unittest.main()

@@ -5,6 +5,7 @@ import json
 import sys
 
 from app_info import APP_VERSION
+from auto_assembly import fully_trimmed
 from batch import CLEAN, NEEDS_REVIEW, SINGLE_READ, triage
 from core import Project
 
@@ -27,6 +28,7 @@ def quality_snapshot(project, made=(), failed=0):
     used = {rid for key in made for rid in project.contigs[key].read_ids()} & project.reads.keys()
     unassembled = set(project.reads) - assigned
     summary = dict(reads=len(project.reads), reads_used=len(used), unassembled_reads=len(unassembled),
+                   fully_trimmed_reads=sum(fully_trimmed(project.reads[rid]) for rid in unassembled),
                    unassembled_read_flags=sum(len(project.read_issues(rid)) for rid in unassembled),
                    contigs_total=len(rows), new_contigs=len(made), failed_groups=failed,
                    clean=counts[CLEAN], needs_review=counts[NEEDS_REVIEW],

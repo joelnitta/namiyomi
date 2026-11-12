@@ -276,6 +276,7 @@ def format_report(settings, summary, priority=(), *, failure=False):
     total, unused, single, failed = (summary[k] for k in
         ('contigs_total', 'unassembled_reads', 'single_read_contigs', 'failed_groups'))
     flags, flagged, stale = (summary[k] for k in ('review_flags', 'flagged_contigs', 'stale_contigs'))
+    trimmed = summary['fully_trimmed_reads']
     targets = [r['id'] for r in ordered_contigs(summary['contigs'], priority)
                if r['review_flags']][:MAX_REPORT_IDS]
     more = flagged - len(targets)
@@ -290,7 +291,8 @@ def format_report(settings, summary, priority=(), *, failure=False):
             assembly = f'{reads}本のリードを受け取りましたが、コンティグを作成できませんでした。'
         notes = []
         if unused:
-            notes.append(f'未組み立てリード{unused}本')
+            detail = f'（うちトリミング後に塩基が残らなかったもの{trimmed}本）' if trimmed else ''
+            notes.append(f'未組み立てリード{unused}本{detail}')
         if single:
             notes.append(f'単一リードのコンティグ{single}件')
         if failed:
@@ -319,7 +321,8 @@ def format_report(settings, summary, priority=(), *, failure=False):
             assembly = f'Received {amount(reads, "read")} but could not build any contigs.'
         notes = []
         if unused:
-            notes.append(amount(unused, 'unassembled read'))
+            detail = f' ({trimmed} with no bases left after trimming)' if trimmed else ''
+            notes.append(amount(unused, 'unassembled read') + detail)
         if single:
             notes.append(amount(single, 'single-read contig'))
         if failed:
