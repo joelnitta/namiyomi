@@ -1,11 +1,12 @@
 """Native Tk dialogs for the optional local assembly and MCP review workflow."""
 from copy import copy
+from pathlib import Path
 from queue import Empty, Queue
 from threading import Thread
 import tkinter as tk
 from tkinter import messagebox, ttk
 
-from auto_assembly import abi_sample_groups, assemble_groups, fully_trimmed, unassembled_groups
+from auto_assembly import abi_sample_groups, assemble_groups, unassembled_groups
 from llm_review import (GEMINI, KEY_ENV, LANGUAGES, MODELS, OFFLINE, PROVIDERS, ReviewError,
                         ReviewPreferences, ReviewSettings, format_report, list_models, ordered_contigs,
                         prioritize_contigs, test_connection)
@@ -217,8 +218,8 @@ class McpDialogs:
         choices = {PREFIX_GROUPING: prefix_groups, ABI_GROUPING: abi_groups}
         abi_ids = {rid for ids in abi_groups.values() for rid in ids}
         unassigned = {rid for ids in prefix_groups.values() for rid in ids}
-        retained = {rid for rid in unassigned if not fully_trimmed(project.reads[rid])}
-        initial_mode = ABI_GROUPING if retained and retained <= abi_ids else PREFIX_GROUPING
+        ungrouped = unassigned - abi_ids
+        initial_mode = ABI_GROUPING if abi_groups else PREFIX_GROUPING
         grouping = tk.StringVar(window, value=initial_mode)
         scope = tk.StringVar(window)
         hint = tk.StringVar(window)
@@ -235,13 +236,22 @@ class McpDialogs:
             if not unassigned:
                 hint.set('The report will use the existing contigs.')
             elif grouping.get() == ABI_GROUPING:
-                excluded = len(unassigned - abi_ids)
-                hint.set('Matches sample IDs in names such as A01_64ar, 782f_A09 and 13a-PREMIX. '
+                hint.set('Groups recognized sample IDs and primers within each source folder. '
                          'Use one locus per source folder. '
-                         + (f'{excluded} reads have no matching primer group.' if excluded else ''))
+                         + (f'{len(ungrouped)} reads will remain ungrouped.' if ungrouped else ''))
             else:
                 hint.set('Groups use the filename before the first underscore. Each prefix must '
                          'identify one specimen and one locus.')
+            if ungrouped:
+                ungrouped_button.configure(state='normal' if grouping.get() == ABI_GROUPING else 'disabled')
+
+        def show_ungrouped():
+            names = sorted(Path(project.reads[rid].path).name for rid in ungrouped)
+            listing = '\n'.join(names[:12])
+            if len(names) > 12:
+                listing += f'\n… and {len(names) - 12} more'
+            messagebox.showinfo('Ungrouped reads', 'These filenames could not be grouped with a different '
+                                'primer in the same source folder.\n\n' + listing, parent=window)
 
         if unassigned:
             row = ttk.Frame(body)
@@ -250,6 +260,9 @@ class McpDialogs:
             chooser = ttk.Combobox(row, state='readonly', textvariable=grouping, values=list(choices), width=21)
             chooser.pack(side='left')
             chooser.bind('<<ComboboxSelected>>', refresh_grouping)
+            if ungrouped:
+                ungrouped_button = ttk.Button(row, text='View ungrouped reads…', command=show_ungrouped)
+                ungrouped_button.pack(side='left', padx=(8, 0))
         ttk.Label(body, textvariable=hint, wraplength=500, justify='left').pack(anchor='w')
         refresh_grouping()
         self._label(body, f'Quality review with {config.provider}', strong=True).pack(anchor='w', pady=(12, 4))

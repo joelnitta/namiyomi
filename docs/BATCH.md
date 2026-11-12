@@ -19,9 +19,12 @@ describe the source branch with MCP; the original v0.1.0 downloads predate it.
 3. Click **Apply**, then open **MCP > Full auto mode by LLM**. Under **Group by**,
    choose **Filename prefix** for names such as `sample07_F.ab1`, or **ABI sample ID**
    for names such as `A01_64ar.ab1` and `A02_64bf.ab1`, `782f_A09.ab1` and
-   `782r_A10.ab1`, or `13a-PREMIX.ab1` and `13c-PREMIX.ab1`. ABI sample ID groups
-   matching numeric IDs with different primers within each source folder. Use
-   one locus per source folder. Unmatched files stay in the read list. Click
+   `782r_A10.ab1`, or `13a-PREMIX.ab1` and `13c-PREMIX.ab1`. It also groups
+   rbcL names such as `AY226_rbcL_af3-PREMIX.ab1` and `AY226_rbcL_cr3-PREMIX.ab1`.
+   The app recognizes the sample and primer even if the separator before the
+   primer varies. For new rbcL files, use `SampleID_rbcL_Primer.ab1` consistently.
+   Use one locus per source folder. **View ungrouped reads** lists filenames
+   that need a closer look. Click
    **OK** to assemble and review. **Edit > Undo** removes the contigs built by
    that run together.
 4. Read the assembly counts and any manual review warnings above the table.

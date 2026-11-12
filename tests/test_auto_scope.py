@@ -148,5 +148,21 @@ class AutoAssemblyScopeTests(unittest.TestCase):
         self.assertEqual((summary['reads_used'], summary['fully_trimmed_reads'], summary['single_read_contigs']),
                          (1, 1, 1))
 
+    def test_abi_normalizes_primer_separators_without_merging_distinct_samples(self):
+        project = Project()
+        expected = {}
+        for folder, names, group in (
+            ('one', ('660af_A01', '660_cr_A02'), '660'),
+            ('two', ('660-af', '660bf'), '660_3'),
+            ('one', ('660_2_af_F01', '660_2cr_F03'), '660_2'),
+            ('fas', ('AY226_rbcL_af3-PREMIX', 'AY226-rbcLcr3_PREMIX'), 'AY226_rbcL'),
+            ('fas', ('A01_rbcL_af3', 'A01_rbcL_cr3'), 'A01_rbcL'),
+        ):
+            ids = self.pair(project, 'unused', folder)
+            for rid, name in zip(ids, names):
+                project.reads[rid].path = f'/inputs/{folder}/{name}.ab1'
+            expected[group] = ids
+        self.assertEqual(abi_sample_groups(project), expected)
+
 
 if __name__=='__main__':unittest.main()

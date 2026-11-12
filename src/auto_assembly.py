@@ -17,13 +17,33 @@ def unassembled_groups(project):
     return groups
 
 
-# Match explicit well tokens or a PREMIX suffix before interpreting a numeric
-# sample ID. The suffix is a primer label, not a strand assignment.
+# Strip run decorations before parsing the sample and primer. Preserve
+# separators inside sample IDs, such as the underscore in 660_2.
 _WELL = r'[A-H][0-9]{2}'
-_ABI_FILENAMES = re.compile(
-    rf'^{_WELL}_(?P<well_first>.+)$|^(?P<well_last>.+?)(?:_[0-9]{{3}})?_{_WELL}$|^(?P<premix>.+)-PREMIX$', re.I)
+_SEPARATOR = r'[_ -]'
+_PREMIX = re.compile(rf'{_SEPARATOR}+PREMIX$', re.I)
+_WELL_FIRST = re.compile(rf'^{_WELL}{_SEPARATOR}+', re.I)
+_WELL_LAST = re.compile(rf'(?:{_SEPARATOR}+[0-9]{{3}})?{_SEPARATOR}+{_WELL}$', re.I)
+_PRIMER = r'470f|1610f|af3|cr3|rrfq|ar|af|bf|bg|cr|f|r|a|b|c'
 _ABI_SAMPLE = re.compile(
-    r'(?P<sample>[0-9]+(?:-[0-9]+)*?)-?(?P<primer>470f|1610f|af3|cr3|rrfq|ar|af|bf|bg|cr|f|r|a|b|c)', re.I)
+    rf'(?P<sample>[0-9]+(?:[-_][0-9]+)*?s?){_SEPARATOR}*(?P<primer>{_PRIMER})', re.I)
+_RBCL_SAMPLE = re.compile(
+    rf'(?P<sample>[A-Z0-9]+(?:[-_][A-Z0-9]+)*?){_SEPARATOR}+rbcL{_SEPARATOR}*(?P<primer>{_PRIMER})', re.I)
+
+
+def _abi_sample_and_primer(stem):
+    stem, premix = _PREMIX.subn('', stem)
+    without_trailing_well, trailing_well = _WELL_LAST.subn('', stem)
+    tagged = _RBCL_SAMPLE.fullmatch(without_trailing_well)
+    if tagged:
+        return tagged['sample'] + '_rbcL', tagged['primer'].casefold()
+    stem, leading_well = _WELL_FIRST.subn('', without_trailing_well)
+    numeric = _ABI_SAMPLE.fullmatch(stem)
+    if numeric:
+        primer = numeric['primer'].casefold()
+        if premix or leading_well or trailing_well or primer in {'af', 'af3', 'bf', 'cr', 'cr3'}:
+            return numeric['sample'], primer
+    return None
 
 
 def abi_sample_groups(project):
@@ -31,23 +51,24 @@ def abi_sample_groups(project):
     candidates = {}
     for read in unassembled_reads(project):
         path = Path(read.path)
-        filename = _ABI_FILENAMES.fullmatch(path.stem)
-        if filename is None:
-            continue
-        token = next(value for value in filename.groups() if value is not None)
-        match = _ABI_SAMPLE.fullmatch(token)
-        if match is not None:
-            sample, primer = match.groups()
-            candidates.setdefault((path.parent, sample), []).append((read.id, primer.casefold()))
+        label = _abi_sample_and_primer(path.stem)
+        if label is not None:
+            sample, primer = label
+            candidates.setdefault((path.parent, sample), []).append((read.id, primer))
 
     # Separate folders can contain the same sample ID. Give each result its own
     # name, and leave reads without a different primer in their folder ungrouped.
     groups, seen = {}, Counter()
+    reserved = {sample for _, sample in candidates}
     for (_, sample), reads in candidates.items():
         if len({primer for _, primer in reads}) < 2:
             continue
         seen[sample] += 1
-        name = sample if seen[sample] == 1 else f'{sample}_{seen[sample]}'
+        name = sample
+        if seen[sample] > 1:
+            while f'{sample}_{seen[sample]}' in reserved:
+                seen[sample] += 1
+            name = f'{sample}_{seen[sample]}'
         groups[name] = [rid for rid, _ in reads]
     return groups
 
