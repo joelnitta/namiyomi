@@ -12,14 +12,14 @@ from pathlib import Path
 from tkinter import colorchooser, filedialog, messagebox, simpledialog, ttk
 from tkinterdnd2 import DND_FILES, COPY, REFUSE_DROP, TkinterDnD
 
-from core import (ALPHABET, COMPLEMENT, Base, Project, ScopedSnapshot, atomic_text, base_text,
+from core import (ALPHABET, AMBIGUOUS, COMPLEMENT, Base, Project, ScopedSnapshot, atomic_text, base_text,
                   bases_for_read, classify_import_paths, fasta_text, validate_read, validate_settings,
                   validate_trim_settings,validate_appearance)
 from assembly import reverse_bases
 from auto_assembly import assemble_groups,unassembled_groups
 from mcp_dialogs import McpDialogs
 import native_menus
-from trace_plot import trace_samples
+from trace_plot import smooth_trace, trace_samples
 from app_info import APP_NAME, APP_VERSION, DEVELOPER, LOCATION
 from sequence_find import find_matches,consensus_coordinates,ordered_entries,validate_find_settings
 from preferences import ConfirmationPreferences
@@ -100,10 +100,13 @@ class TracePane(ttk.Frame):
             points=[]
             for x,sample in samples:
                 y=baseline-min(1,values[sample]/sample_max*app.trace_gain)*(baseline-top)
-                points.extend((x,y))
-            if len(points)>=4:
+                points.append((x,y))
+            if len(points)>=2:
                 display_channel=COMPLEMENT[channel] if self.reverse else channel
-                c.create_line(*points,fill=app.base_colors()[display_channel],width=1.2)
+                if app.project.appearance.get('smooth_trace', False):
+                    points = smooth_trace(points)
+                c.create_line(*(coord for point in points for coord in point),
+                              fill=app.base_colors()[display_channel],width=1.2)
         qy=height-10-app.project.settings['min_quality']/60*32
         c.create_line(62,qy,width,qy,fill='#b7b7b7',dash=(2,3))
         c.create_text(6,height-28,anchor='w',text='Phred Q',font=(UI_FAMILY,9),fill='black')
@@ -744,9 +747,12 @@ class Editor(TkinterDnD.Tk):
             for name,b in entries:
                 if b is not None:
                     coords.append(f'{name}: AB1 {b.raw+1 if b.raw is not None else "inserted"}, Phred {b.quality if b.quality is not None else "n/a"}')
-            q=c.quality if str(i) not in co.overrides else None
+            q=c.quality if str(i) not in co.overrides and str(i) not in co.ai_review else None
             active='Consensus' if self.active_track=='consensus' else 'Source read'
-            self.status.set(f'{active} | Position {i+1} | Support Q {q if q is not None else "n/a"} | {" | ".join(coords)}')
+            review = (' | AI unresolved' if co.ai_unresolved(i) else ' | AI replacement'
+                      if co.ai_review.get(str(i)) in ('A', 'C', 'G', 'T') else ' | Double peak (IUPAC)'
+                      if c.reason == 'double_peak' and str(i) not in co.overrides else '')
+            self.status.set(f'{active} | Position {i+1}{review} | Support Q {q if q is not None else "n/a"} | {" | ".join(coords)}')
         else:self.status.set('')
 
     def consensus_position(self,col):
@@ -760,7 +766,7 @@ class Editor(TkinterDnD.Tk):
             b=self.f_pane.mapping[col]
             if b.raw is None:return False
             read=self.project.reads[self.read_id];q=self.project.traces[self.read_id].qualities[b.raw]
-            auto=read.start<=b.raw<read.end and (q is None or q<self.project.settings['min_quality'] or b.base=='N')
+            auto=read.start<=b.raw<read.end and (q is None or q<self.project.settings['min_quality'] or b.base in AMBIGUOUS)
             return read.black_marks.get(str(b.raw),auto)
         return False
 
@@ -783,7 +789,11 @@ class Editor(TkinterDnD.Tk):
         self.remember(self.history_entry(scope))
         lo,hi=sorted((self.selection,self.anchor))
         for i in range(lo,hi+1):
-            if self.view_kind=='contig':self.project.contigs[self.group_key].black_marks[str(i)]=not reviewed
+            if self.view_kind=='contig':
+                co = self.project.contigs[self.group_key]
+                co.black_marks[str(i)] = not reviewed
+                if co.ai_review.get(str(i)) == 'N':
+                    co.ai_review.pop(str(i))
             else:
                 b=self.f_pane.mapping[i]
                 if b.raw is not None:self.project.reads[self.read_id].black_marks[str(b.raw)]=not reviewed
@@ -817,17 +827,21 @@ class Editor(TkinterDnD.Tk):
             if lo<=i<=hi:c.create_rectangle(x-self.cell/2,0,x+self.cell/2,104,fill='#dbe7f6',outline='')
             if i in highlighted:c.create_rectangle(x-self.cell/2,31,x+self.cell/2,57,fill='#ffcc80' if i in active else '#ffe0ac',outline='',tags=('find_hit',))
             call=co.call(i) if co else self.f_pane.mapping[i].base
-            if (i in marked if marked is not None else self.is_marked(i)):c.create_rectangle(x-4,6,x+4,12,fill='black',outline='')
+            if (i in marked if marked is not None else self.is_marked(i)):
+                color = '#c01c28' if co and co.ai_unresolved(i) else 'black'
+                c.create_rectangle(x-4,6,x+4,12,fill=color,outline='')
             if (i+1)%10==0 or i==self.offset:c.create_text(x,24,text=str(i+1),font=(MONO_FAMILY,8),fill='#555')
             c.create_text(x,44,text=call or '-',font=self.base_font(),fill=self.base_colors().get(call,'#555'))
             manual=(str(i) in co.overrides) if co else self.f_pane.mapping[i].manual
             if manual:c.create_line(x-5,57,x+5,57,fill='#b66b16',width=2)
+            if co and co.ai_review.get(str(i)) in ('A', 'C', 'G', 'T'):
+                c.create_line(x-5,57,x+5,57,fill='#007a74',width=2)
             if co and co.insertions.get(str(i)):
                 self.draw_insertion(i,co.insertions[str(i)],i in highlighted)
             if co and i==len(co.columns)-1 and co.insertions.get(str(i+1)):
                 self.draw_insertion(i,co.insertions[str(i+1)],i in highlighted,True)
             if co:
-                quality=co.columns[i].quality if str(i) not in co.overrides else None
+                quality=co.columns[i].quality if str(i) not in co.overrides and str(i) not in co.ai_review else None
                 if quality is not None and call:
                     c.create_rectangle(x-3,87-min(60,quality)/60*23,x+3,87,fill='#777',outline='')
         if co:c.create_text(6,77,text='Support Q',anchor='w',font=(UI_FAMILY,9),fill='black')
@@ -1025,15 +1039,22 @@ class Editor(TkinterDnD.Tk):
                 color=colorchooser.askcolor(color=appearance['colors'][b],title=f'{b} Color',parent=window)[1]
                 if color:appearance['colors'][b]=color;widget.config(fg=color)
             button.config(command=choose);button.grid(row=row,column=1)
+        smooth = tk.BooleanVar(window, value=appearance.get('smooth_trace', False))
+        ttk.Checkbutton(body, text='Smooth chromatogram display', variable=smooth).grid(
+            row=5, column=0, columnspan=2, sticky='w', pady=(8, 0))
         def apply():
+            if smooth.get():
+                appearance['smooth_trace'] = True
+            else:
+                appearance.pop('smooth_trace', None)
             try:appearance['font_size']=int(size.get());validate_appearance(appearance)
             except ValueError as exc:messagebox.showerror('Invalid Settings',str(exc));return
             if appearance!=self.project.appearance:
                 self.remember();self.project.appearance=appearance;self.project.dirty=True
                 self.zoom.set(max(self.cell,appearance['font_size']+6));self.schedule_draw();self.update_title()
             window.destroy()
-        ttk.Button(body,text='Cancel',command=window.destroy).grid(row=5,column=0,sticky='w',pady=12)
-        ttk.Button(body,text='Apply',command=apply).grid(row=5,column=1,sticky='e',pady=12)
+        ttk.Button(body,text='Cancel',command=window.destroy).grid(row=6,column=0,sticky='w',pady=12)
+        ttk.Button(body,text='Apply',command=apply).grid(row=6,column=1,sticky='e',pady=12)
         window.bind('<Return>',lambda e:apply());window.bind('<Escape>',lambda e:window.destroy())
 
     def settings_dialog(self):
@@ -1042,10 +1063,15 @@ class Editor(TkinterDnD.Tk):
         for row,(label,(key,(var,scale))) in enumerate(zip(labels,self.setting_vars.items())):
             ttk.Label(body,text=label).grid(row=row,column=0,sticky='w',padx=(0,18),pady=7)
             ttk.Entry(body,textvariable=var,width=10).grid(row=row,column=1,pady=7)
+        double_peaks = tk.BooleanVar(window, value=self.project.settings.get('call_double_peaks', False))
+        ttk.Checkbutton(body, text='Call clear double peaks as IUPAC codes', variable=double_peaks).grid(
+            row=3, column=0, columnspan=2, sticky='w', pady=(8, 0))
+        ttk.Label(body, text='Flags each ambiguity for review. Second peak ≥ 65% of the first.',
+                  wraplength=310).grid(row=4, column=0, columnspan=2, sticky='w', pady=(4, 0))
         def apply():
-            if self.apply_settings():window.destroy()
-        ttk.Button(body,text='Apply',command=apply).grid(row=3,column=1,pady=(12,0))
-        ttk.Button(body,text='Cancel',command=window.destroy).grid(row=3,column=0,sticky='w',pady=(12,0))
+            if self.apply_settings(double_peaks.get()):window.destroy()
+        ttk.Button(body,text='Apply',command=apply).grid(row=5,column=1,pady=(12,0))
+        ttk.Button(body,text='Cancel',command=window.destroy).grid(row=5,column=0,sticky='w',pady=(12,0))
         window.bind('<Return>',lambda e:apply());window.bind('<Escape>',lambda e:window.destroy())
 
     def metadata_dialog(self):
@@ -1076,6 +1102,7 @@ class Editor(TkinterDnD.Tk):
                 self.arrow(1);return
             self.remember(self.edit_history_entry());co.overrides[str(self.selection)]=value
             co.black_marks.pop(str(self.selection),None)
+            co.ai_review.pop(str(self.selection),None)
             self.project.dirty=True
         elif self.read_id:
             b=self.f_pane.mapping[self.selection]
@@ -1099,7 +1126,9 @@ class Editor(TkinterDnD.Tk):
         if self.view_kind=='contig':
             co=self.project.contigs[self.group_key]
             if co.stale:messagebox.showinfo('Rebuild Required','Rebuild the contig before editing.');return
-            for i in positions:co.overrides[str(i)]=''
+            for i in positions:
+                co.overrides[str(i)]=''
+                co.ai_review.pop(str(i),None)
             self.project.dirty=True
         else:
             self.project.edit_read_bases(self.read_id,[self.f_pane.mapping[i].raw for i in positions],'')
@@ -1227,9 +1256,11 @@ class Editor(TkinterDnD.Tk):
     def sync_settings(self):
         for key,(var,scale) in self.setting_vars.items():var.set(f'{self.project.settings[key]*scale:g}')
 
-    def apply_settings(self):
+    def apply_settings(self, double_peaks=False):
         try:
             settings={key:(int(var.get()) if scale==1 else float(var.get())/scale) for key,(var,scale) in self.setting_vars.items()}
+            if double_peaks:
+                settings['call_double_peaks'] = True
             validate_settings(settings)
         except (ValueError,TypeError) as exc:messagebox.showerror('Invalid Settings',str(exc));return
         if settings==self.project.settings:return True
@@ -1417,7 +1448,7 @@ class Editor(TkinterDnD.Tk):
         if errors:messagebox.showwarning('Import Errors','\n'.join(errors[:12]))
 
     def confirm_rebuild(self,keys):
-        edited=[self.project.contigs[k] for k in keys if k in self.project.contigs and (self.project.contigs[k].overrides or self.project.contigs[k].insertions or self.project.contigs[k].black_marks)]
+        edited=[self.project.contigs[k] for k in keys if k in self.project.contigs and (self.project.contigs[k].overrides or self.project.contigs[k].insertions or self.project.contigs[k].black_marks or self.project.contigs[k].ai_review)]
         return not edited or messagebox.askyesno('Rebuild Contig','Rebuilding will replace consensus edits and review flags.\nYou can restore them with Undo. Continue?')
 
     def build_current(self):

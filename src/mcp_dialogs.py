@@ -6,9 +6,10 @@ import tkinter as tk
 from tkinter import messagebox, ttk
 
 from auto_assembly import assemble_groups, unassembled_groups
-from llm_review import (GEMINI, KEY_ENV, LANGUAGES, MODELS, OFFLINE, PROVIDERS, ReviewError,
-                        ReviewPreferences, ReviewSettings, format_report, list_models, ordered_contigs,
-                        prioritize_contigs, test_connection)
+from base_review import screen_uncalled
+from llm_review import (DEFAULT_EFFORT, EFFORTS, GEMINI, KEY_ENV, LANGUAGES, MODELS, OFFLINE,
+                        PROVIDERS, ReviewError, ReviewPreferences, ReviewSettings, approve_base_candidates,
+                        format_report, list_models, ordered_contigs, prioritize_contigs, test_connection)
 from mcp_server import quality_snapshot, read_quality
 
 TITLE = 'Full auto mode by LLM'
@@ -21,6 +22,42 @@ def assemble_snapshot(project, groups):
     return {key: project.contigs[key] for key in made}, errors, read_quality(summary), rows
 
 
+def review_snapshot(project, groups, config):
+    made, errors, summary, rows = assemble_snapshot(project, groups)
+    if config.provider == OFFLINE or not rows:
+        return made, errors, summary, rows, (), None
+
+    candidates, unresolved = screen_uncalled(project)
+    try:
+        approved = approve_base_candidates(config, [candidate.metrics for candidate in candidates])
+    except (ReviewError, ValueError) as exc:
+        return made, errors, summary, rows, (), str(exc)
+
+    pending = {site: 'N' for site in unresolved}
+    for i, candidate in enumerate(candidates):
+        pending[candidate.contig, candidate.column] = candidate.base if i in approved else 'N'
+    previous = {}
+    for (key, column), base in pending.items():
+        contig = project.contigs[key]
+        if contig.ai_review.get(str(column)) != base:
+            if key not in previous:
+                previous[key] = contig.ai_review.copy()
+            contig.ai_review[str(column)] = base
+    updated, updated_rows = (quality_snapshot(project, made, len(errors)) if previous else (summary, rows))
+    failure = None
+    try:
+        priority = prioritize_contigs(config, read_quality(updated))
+    except (ReviewError, ValueError) as exc:
+        # Without candidates, prioritization is the only provider call in this run.
+        if not candidates:
+            for key, review in previous.items():
+                project.contigs[key].ai_review = review
+            return made, errors, summary, rows, (), str(exc)
+        priority, failure = (), str(exc)
+    updated['replaced_n'] = len(approved)
+    return {**made, **{key: project.contigs[key] for key in previous}}, errors, updated, updated_rows, priority, failure
+
+
 class McpDialogs:
     def __init__(self, editor):
         self.editor = editor
@@ -28,14 +65,16 @@ class McpDialogs:
         self.config = self.preferences.load()
         self.session_settings = {self.config.provider: self.config}
         self.window = None
+        self.results_window = None
 
     def _open(self, title):
         if self.window is not None and self.window.winfo_exists():
             self.window.lift()
             return None, None
-        self.window, body = self.editor.panel(title)
-        self.window.bind('<Escape>', lambda _: self.window.destroy())
-        return self.window, body
+        window, body = self.editor.panel(title)
+        self.window = window
+        window.bind('<Escape>', lambda _: window.destroy())
+        return window, body
 
     def _center(self, window):
         window.update_idletasks()
@@ -87,6 +126,7 @@ class McpDialogs:
         model = tk.StringVar(window, value=self.config.model)
         key = tk.StringVar(window, value=self.config.key)
         language = tk.StringVar(window, value=self.config.language)
+        effort = tk.StringVar(window, value=self.config.effort)
         notice = tk.StringVar(window)
         status = tk.StringVar(window)
         combo = ttk.Combobox(form, textvariable=provider, values=PROVIDERS, state='readonly', width=28)
@@ -96,7 +136,9 @@ class McpDialogs:
         key_entry = ttk.Entry(form, textvariable=key, show='•', width=33)
         language_box = ttk.Combobox(form, textvariable=language, values=LANGUAGES,
                                     state='readonly', width=15)
+        effort_box = ttk.Combobox(form, textvariable=effort, state='readonly', width=15)
         for index, (label, widget) in enumerate((('Provider', combo), ('Model ID', model_row),
+                                                  ('Reasoning effort', effort_box),
                                                   ('API key', key_entry), ('Report language', language_box))):
             ttk.Label(form, text=label).grid(row=index, column=0, sticky='w', pady=4, padx=(0, 16))
             widget.grid(row=index, column=1, sticky='ew', pady=4)
@@ -109,7 +151,7 @@ class McpDialogs:
         def values():
             choice = provider.get()
             config = ReviewSettings(choice, model.get().strip() if choice != OFFLINE else '',
-                                    language.get(), key.get().strip() if choice != OFFLINE else '')
+                                    language.get(), key.get().strip() if choice != OFFLINE else '', effort.get())
             config.validate()
             return config
 
@@ -122,7 +164,7 @@ class McpDialogs:
                 status.set(str(exc))
                 return
             combo.configure(state='disabled')
-            for widget in (model_entry, key_entry, language_box, apply_button, test_button, refresh_button):
+            for widget in (model_entry, key_entry, language_box, effort_box, apply_button, test_button, refresh_button):
                 widget.configure(state='disabled')
             status.set('Loading the provider’s model list…' if refresh else
                        'Testing with a short message. No project data is sent…')
@@ -130,6 +172,7 @@ class McpDialogs:
             def done(result, error):
                 combo.configure(state='readonly')
                 language_box.configure(state='readonly')
+                effort_box.configure(state='readonly')
                 for widget in (model_entry, key_entry, apply_button, test_button, refresh_button):
                     widget.configure(state='normal')
                 if error:
@@ -169,25 +212,27 @@ class McpDialogs:
         ttk.Button(buttons, text='Cancel', command=window.destroy).pack(side='right', padx=(0, 6))
 
         previous = self.config.provider
-        drafts = {p: (c.model, c.key) for p, c in self.session_settings.items()}
+        drafts = {p: (c.model, c.key, c.effort) for p, c in self.session_settings.items()}
 
         def sync(event=None):
             nonlocal previous
             choice = provider.get()
             if event is not None:
-                drafts[previous] = (model.get(), key.get())
-                model_id, api_key = drafts.get(choice, (MODELS[choice], ''))
+                drafts[previous] = (model.get(), key.get(), effort.get())
+                model_id, api_key, level = drafts.get(choice, (MODELS[choice], '', DEFAULT_EFFORT))
                 model.set(model_id)
                 key.set(api_key)
+                effort.set(level)
                 model_entry.configure(values=())
                 status.set('')
                 previous = choice
             offline = choice == OFFLINE
+            effort_box.configure(values=EFFORTS[choice], state='disabled' if offline else 'readonly')
             for widget in (model_entry, key_entry, test_button, refresh_button):
                 widget.configure(state='disabled' if offline else 'normal')
             notice.set('Uses a built-in report. No API key or internet connection is needed.' if offline else
                        f'Keys entered here last until the app closes. Leave blank to use {KEY_ENV[choice]}. '
-                       'A connection test may incur API charges.')
+                       'Effort levels vary by model. Test Connection checks the selected level and may incur API charges.')
 
         combo.bind('<<ComboboxSelected>>', sync)
         sync()
@@ -198,6 +243,9 @@ class McpDialogs:
         app, config = self.editor, self.config
         if self.window is not None and self.window.winfo_exists():
             self.window.lift()
+            return
+        if self.results_window is not None and self.results_window.winfo_exists():
+            self.results_window.lift()
             return
         project = app.project
         if not project.reads and not project.contigs:
@@ -218,14 +266,15 @@ class McpDialogs:
         ttk.Separator(body).pack(fill='x')
         self._label(body, '1. Assemble unassigned reads on this Mac or PC', strong=True).pack(anchor='w', pady=(12, 4))
         self._label(body, 'Groups use the filename before the first underscore. Use this only if '
-                    'each prefix is one specimen and one locus. Existing contigs keep their edits and flags.'
+                    'each prefix is one specimen and one locus.'
                     if groups else 'All reads already belong to contigs. The report will use the current project.').pack(anchor='w')
         self._label(body, f'2. Review quality with {config.provider}', strong=True).pack(anchor='w', pady=(12, 4))
         if config.provider == OFFLINE:
             sharing = 'Use a built-in report to try the workflow. Nothing is sent over the internet.'
         else:
-            sharing = (f'Send quality counts and anonymous contig IDs to {config.provider}. '
-                       'Sequences, traces, names and paths stay on this device. API usage may be billed.')
+            sharing = (f'Review uncertain consensus bases with {config.provider} using anonymous quality metrics. '
+                       'Approved N replacements are applied as one undoable operation with assembly. '
+                       'Sequences and traces stay on this device. API usage may be billed.')
             if config.provider == GEMINI:
                 sharing += ' Google may use free-tier requests to improve its products.'
         self._label(body, sharing).pack(anchor='w')
@@ -253,7 +302,7 @@ class McpDialogs:
         for widget in body.winfo_children():
             widget.destroy()
         self._label(body, 'Full auto analysis', strong=True).pack(anchor='w')
-        progress = tk.StringVar(window, value='Assembling and checking quality on this device…')
+        progress = tk.StringVar(window, value='Assembling reads and reviewing consensus quality…')
         ttk.Label(body, textvariable=progress, width=62, wraplength=470).pack(anchor='w', pady=(8, 12))
         bar = ttk.Progressbar(body, mode='indeterminate')
         bar.pack(fill='x')
@@ -261,7 +310,7 @@ class McpDialogs:
         ttk.Button(body, text='Close', command=window.destroy).pack(anchor='e', pady=(12, 0))
         self._center(window)
 
-        def assembled(result, error):
+        def finished(result, error):
             if error:
                 bar.stop()
                 progress.set(error)
@@ -270,7 +319,7 @@ class McpDialogs:
                 bar.stop()
                 progress.set('The project changed. No assembly result was applied.')
                 return
-            contigs, errors, summary, rows = result
+            contigs, errors, summary, rows, priority, failure = result
             if contigs:
                 entry = app.history_entry()
                 project.contigs.update(contigs)
@@ -281,24 +330,20 @@ class McpDialogs:
                 app.update_title()
                 # Keep focus in the dialog while Tk's editor refreshes.
                 window.focus_set()
-            result_revision = app.revision
-            app.status.set(f'Full auto: {len(contigs)} built | {len(errors)} groups failed')
-            if config.provider == OFFLINE or not summary['contigs_total']:
-                self._results(window, body, project, result_revision, config, summary, rows, errors, (), None)
-                return
-            progress.set(f'Checking review priorities with {config.provider}…')
-            self._background(window, lambda: prioritize_contigs(config, summary),
-                             lambda priority, failure: self._results(window, body, project, result_revision,
-                                                                      config, summary, rows, errors,
-                                                                      priority or (), failure))
+            app.status.set(f'Full auto: {summary["new_contigs"]} built | {len(errors)} groups failed')
+            self._results(window, body, project, config, summary, rows, errors, priority, failure)
 
-        self._background(window, lambda: assemble_snapshot(snapshot, groups), assembled)
+        self._background(window, lambda: review_snapshot(snapshot, groups, config), finished)
 
-    def _results(self, window, body, project, revision, config, summary, rows, errors, priority, failure):
+    def _results(self, window, body, project, config, summary, rows, errors, priority, failure):
         app = self.editor
         for widget in body.winfo_children():
             widget.destroy()
         window.title('Full auto analysis · Results')
+        window.grab_release()
+        window.unbind('<Escape>')
+        self.window = None
+        self.results_window = window
         self._label(body, 'Analysis results', strong=True).pack(anchor='w')
         report = format_report(config, summary, priority, failure=bool(failure))
         self._label(body, report, width=545).pack(anchor='w', pady=(8, 14))
@@ -306,9 +351,9 @@ class McpDialogs:
         if rows:
             table_frame.pack(fill='x')
         table = ttk.Treeview(table_frame, show='headings', height=min(6, max(2, len(rows))), selectmode='browse',
-                             columns=('id', 'name', 'category', 'length', 'flags'))
+                             columns=('id', 'name', 'category', 'length', 'flags', 'red'))
         for col, name, width in (('id', 'ID', 55), ('name', 'Contig', 205), ('category', 'Status', 132),
-                                 ('length', 'Length (bp)', 88), ('flags', 'Flags', 54)):
+                                 ('length', 'Length (bp)', 88), ('flags', 'Flags', 54), ('red', 'Red', 44)):
             table.heading(col, text=name)
             table.column(col, width=width, stretch=col == 'name', anchor='w' if col in ('name', 'category') else 'center')
         scroll = ttk.Scrollbar(table_frame, orient='vertical', command=table.yview)
@@ -321,24 +366,26 @@ class McpDialogs:
             keys[ident] = row['key']
             label = {'clean': 'No flags', 'needs_review': 'Needs review', 'single_read': 'Single read'}[row['category']]
             table.insert('', 'end', iid=ident, values=(ident, row['name'],
-                         'Stale' if row['stale'] else label, row['length_bp'], row['review_flags']))
+                         'Stale' if row['stale'] else label, row['length_bp'], row['review_flags'], row['red_flags']))
         if config.provider == OFFLINE:
             self._label(body, 'Offline preview · no API request').pack(anchor='w', pady=(8, 0))
         buttons = ttk.Frame(body)
         buttons.pack(fill='x', pady=(10, 0))
 
         def inspect(event=None):
-            if not table.selection():
+            selected = (table.identify_row(event.y) if event is not None and event.type == tk.EventType.ButtonRelease
+                        else next(iter(table.selection()), ''))
+            if selected not in keys:
                 return
-            if app.project is not project or app.revision != revision:
-                messagebox.showinfo(TITLE, 'The project changed after this report was created.', parent=window)
+            key = keys[selected]
+            if app.project is not project or key not in project.contigs:
+                messagebox.showinfo(TITLE, 'This contig is no longer in the current project.', parent=window)
                 return
-            key = keys[table.selection()[0]]
-            window.destroy()
             app.show_contig(key)
-            flags = project.contigs[key].issues()
+            contig = project.contigs[key]
+            flags = contig.issues()
             if flags:
-                app.selection = app.anchor = flags[0]
+                app.selection = app.anchor = next((i for i in flags if contig.ai_unresolved(i)), flags[0])
                 app.ensure_visible()
                 app.update_status()
 
@@ -358,7 +405,7 @@ class McpDialogs:
         if rows:
             view.pack(side='left', padx=6)
         table.bind('<<TreeviewSelect>>', lambda _: view.configure(state='normal' if table.selection() else 'disabled'))
-        table.bind('<Double-1>', inspect)
+        table.bind('<ButtonRelease-1>', inspect)
         table.bind('<Return>', inspect)
         close = ttk.Button(buttons, text='Close', command=window.destroy)
         close.pack(side='right')

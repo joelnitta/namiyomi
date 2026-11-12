@@ -12,7 +12,7 @@ describe the source branch with MCP; the original v0.1.0 downloads predate it.
    enter the API key, and choose English or Japanese for the report.
    **Refresh Models** fetches current model IDs from the provider without sending project data.
    Pick one from the Model ID list or type an ID directly. Refreshing keeps your selected model.
-   Providers can list models that do not support text reports; use the connection test to confirm.
+   Choose **Reasoning effort** or leave it at **Default**. The supported levels vary by model.
    **Test Connection** sends a short test prompt and can incur an API charge.
    The API account needs access to the selected model. The ChatGPT and Claude
    web app subscriptions do not act as API credentials.
@@ -21,13 +21,25 @@ describe the source branch with MCP; the original v0.1.0 downloads predate it.
    first underscore. For rbcL files, rename them before importing, for example
    `64_rbcL_af.ab1` and `64_rbcL_cr.ab1`. Use IDs without underscores and
    make each prefix refer to one specimen and one locus across the project.
-   Previously assembled contigs keep their edits and flags. If all reads are
-   assembled, this step reports on the current contigs. You can undo newly
-   assembled contigs together with **Edit > Undo**.
+   The app screens unresolved consensus bases against the original AB1 peaks.
+   The model may approve the locally supported candidate or leave the base as N.
+   Existing manual calls and sites explicitly marked reviewed are skipped.
+   **Edit > Undo** reverses the assembly and automatic base changes together.
 4. Read the assembly counts and any manual review warnings above the table.
-   Select a contig and click **Open Contig** to jump to its first flagged site,
-   if it has one. Save or export using the normal File menu. If the API call
-   fails, the local contigs and quality results are still available.
+   Click a result row or **Open Contig** to jump to its first red flag, or to
+   its first ordinary flag. Red flags are positions still unresolved after AI
+   review. The results window stays open while you inspect and edit the project.
+   Save or export using the normal File menu.
+
+For nuclear loci, **Assembly Settings > Call clear double peaks as IUPAC codes**
+is an opt-in setting. The smaller peak must be at least 65% of the taller peak
+at the same position, with clear neighboring peaks. A detected pair such as A/G
+is represented as R and flagged for review. Rebuild existing contigs after
+changing the setting.
+
+**Settings > Appearance > Smooth chromatogram display** interpolates between
+the displayed samples. It preserves peak heights and leaves base calling and
+quality calculations on the original AB1 measurements.
 
 **Offline preview** is a provider option that runs real local assembly and shows
 a built-in report without calling an API. It uses the same dialogs as an online run.
@@ -38,13 +50,14 @@ subject to your project's eligibility and quota. Check [Google's current pricing
 and data use terms; Google may use free-tier requests to improve its products.
 
 Online providers receive quality metrics: read/contig counts, lengths, overlap
-statistics, counts of flags and Ns, and numbered IDs for up to 50 contigs in review
-priority order. The result table maps those IDs to names locally. No bases,
+statistics, counts of flags and Ns, numbered IDs for up to 50 contigs, and
+anonymous peak ratios and Phred support for eligible N positions. The result
+table maps those IDs to names locally. No bases,
 chromatogram images, sample labels, filenames, paths, or assembly error text are
-sent. Only the provider, model and language are saved in app settings. A key
+sent. Provider, model, effort and language are saved in app settings. A key
 typed in the dialog lasts until the app closes; alternatively launch with
 `OPENAI_API_KEY`, `ANTHROPIC_API_KEY` or `GEMINI_API_KEY` set in the environment. OpenAI calls use
-`store: false`. The model suggests which flagged contigs to check first. The app
+`store: false`. The model approves eligible candidates and orders flagged contigs. The app
 formats the report from its own counts and flags, and a report with no warnings
 does not certify sequence accuracy.
 

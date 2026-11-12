@@ -10,11 +10,94 @@ from unittest.mock import patch
 from auto_assembly import unassembled_groups
 from core import Project
 from llm_review import (CLAUDE, GEMINI, OFFLINE, OPENAI, ReviewError, ReviewPreferences, ReviewSettings,
-                        format_report, list_models, ordered_contigs, prioritize_contigs)
-from mcp_dialogs import assemble_snapshot
+                        format_report, list_models, ordered_contigs, prioritize_contigs, test_connection)
+from mcp_dialogs import assemble_snapshot, review_snapshot
 from mcp_server import MAX_ROWS, quality_snapshot
+from test_core import synthetic
 
 ROOT = Path(__file__).resolve().parents[1]
+
+
+def peak_fixture():
+    project = Project()
+    read, trace = synthetic(project, 'TACGACTAC', 'F')
+    trace.peaks = [10 + 12 * i for i in range(len(trace.sequence))]
+    trace.channels = {base: [0] * 120 for base in 'ACGT'}
+    for base, center in zip(trace.sequence, trace.peaks):
+        trace.channels[base][center - 1:center + 2] = [300, 1000, 300]
+    trace.qualities[3] = 19   # Clear G, narrowly below the default Phred threshold.
+    summit = trace.peaks[3]
+    trace.channels['G'][summit + 1:summit + 3] = [1000, 300]
+    trace.qualities[6] = 15   # Two comparable channels, T and C.
+    center = trace.peaks[6]
+    trace.channels['C'][center - 1:center + 2] = [240, 800, 240]
+    return project, read
+
+
+class ConsensusReviewTests(unittest.TestCase):
+    def test_ai_can_approve_a_peak_but_cannot_choose_the_base_or_clear_a_mixed_peak(self):
+        project, _ = peak_fixture()
+        config = ReviewSettings(key='test-credential', effort='high')
+        with patch('llm_review._generate', side_effect=[
+                '{"approved_ids":["P00001"]}', '{"priority_ids":["C001"]}']) as generate:
+            made, errors, summary, _, _, failure = review_snapshot(project, unassembled_groups(project), config)
+        self.assertEqual((errors, failure), ([], None))
+        contig = next(iter(made.values()))
+        self.assertEqual(contig.columns[3].call, 'N')
+        self.assertEqual((contig.call(3), contig.call(6)), ('G', 'N'))
+        self.assertEqual(contig.issues(), [6])
+        self.assertTrue(contig.ai_unresolved(6))
+        self.assertEqual((summary['replaced_n'], summary['red_flags']), (1, 1))
+        payload = json.loads(generate.call_args_list[0].args[2])
+        self.assertEqual(set(payload[0]), {'id', 'agreeing_traces', 'best_agreeing_phred', 'weakest_peak_ratio'})
+        self.assertEqual(len(payload), 1)
+        self.assertIn('Check the 1 red flag', format_report(config, summary, ('C001',)))
+        key = next(iter(made))
+        project.reverse_contig(key)
+        self.assertEqual(contig.call(5), 'C')
+        self.assertTrue(contig.ai_unresolved(2))
+
+    def test_invalid_decision_preserves_local_assembly_and_flags(self):
+        project, _ = peak_fixture()
+        with patch('llm_review._generate', return_value='{"approved_ids":["P99999"]}'):
+            made, _, _, _, _, failure = review_snapshot(project, unassembled_groups(project),
+                                                         ReviewSettings(key='test-credential'))
+        contig = next(iter(made.values()))
+        self.assertEqual((contig.call(3), contig.call(6), contig.ai_review), ('N', 'N', {}))
+        self.assertIn('valid base review', failure)
+
+    def test_double_peak_setting_calls_iupac_and_keeps_a_review_flag(self):
+        project, read = peak_fixture()
+        key = project.assemble_reads([read.id], 'Off')
+        self.assertEqual(project.contigs[key].call(6), 'N')
+        project.settings['call_double_peaks'] = True
+        key = project.assemble_reads([read.id], 'On')
+        contig = project.contigs[key]
+        self.assertEqual((contig.call(6), contig.columns[6].reason), ('Y', 'double_peak'))
+        self.assertIn(6, contig.issues())
+        self.assertFalse(contig.ai_unresolved(6))
+        self.assertEqual(contig.call(3), 'N')
+        project.reverse_contig(key)
+        self.assertEqual(contig.call(2), 'R')
+        self.assertIn(2, contig.issues())
+        self.assertTrue(project.edit_read_bases(read.id, [6], 'C'))
+        self.assertEqual(contig.call(2), 'G')
+
+    def test_effort_uses_provider_specific_parameters(self):
+        for provider, model, expected, response in (
+                (OPENAI, 'gpt-6.1-sol', {'reasoning': {'effort': 'high'}},
+                 {'status': 'completed', 'output': [{'type': 'message', 'content': [
+                     {'type': 'output_text', 'text': 'OK'}]}]}),
+                (CLAUDE, 'claude-haiku-5-5', {'output_config': {'effort': 'high'}},
+                 {'stop_reason': 'end_turn', 'content': [{'type': 'text', 'text': 'OK'}]}),
+                (GEMINI, 'gemini-3.5-flash-lite',
+                 {'generationConfig': {'maxOutputTokens': 16384, 'thinkingConfig': {'thinkingLevel': 'HIGH'}}},
+                 {'candidates': [{'finishReason': 'STOP', 'content': {'parts': [{'text': 'OK'}]}}]}),
+        ):
+            with self.subTest(provider=provider), patch('llm_review._post', return_value=response) as send:
+                self.assertEqual(test_connection(ReviewSettings(provider, model, key='test', effort='high')), 'OK')
+                for key, value in expected.items():
+                    self.assertEqual(send.call_args.args[2][key], value)
 
 
 class McpQualityTests(unittest.TestCase):

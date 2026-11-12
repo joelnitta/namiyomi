@@ -8,6 +8,37 @@ import bisect
 import math
 
 
+def smooth_trace(points):
+    """Interpolate screen points without changing samples or adding extrema."""
+    if len(points) < 3:
+        return points
+    intervals = [b[0] - a[0] for a, b in zip(points, points[1:])]
+    if any(dx <= 0 for dx in intervals):
+        return points
+    slopes = [(b[1] - a[1]) / dx for a, b, dx in zip(points, points[1:], intervals)]
+    tangents = [slopes[0]]
+    for left, right, before, after in zip(slopes, slopes[1:], intervals, intervals[1:]):
+        if left * right <= 0:
+            tangents.append(0)
+        else:
+            w1, w2 = 2 * after + before, after + 2 * before
+            tangents.append((w1 + w2) / (w1 / left + w2 / right))
+    tangents.append(slopes[-1])
+    result = [points[0]]
+    for i, dx in enumerate(intervals):
+        x, y = points[i]
+        end = points[i + 1][1]
+        steps = min(6, math.ceil(dx / 1.25))
+        for step in range(1, steps):
+            t = step / steps
+            t2, t3 = t * t, t * t * t
+            value = ((2 * t3 - 3 * t2 + 1) * y + (t3 - 2 * t2 + t) * dx * tangents[i]
+                     + (-2 * t3 + 3 * t2) * end + (t3 - t2) * dx * tangents[i + 1])
+            result.append((x + t * dx, min(max(value, min(y, end)), max(y, end))))
+        result.append(points[i + 1])
+    return result
+
+
 def trace_samples(trace,mapping,left,right,cell,reverse=False):
     anchors=[(i,float(trace.peaks[b.raw]),b.raw) for i,b in enumerate(mapping)
              if b is not None and b.raw is not None]

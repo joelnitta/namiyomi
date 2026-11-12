@@ -19,6 +19,13 @@ PROVIDERS = (OPENAI, CLAUDE, GEMINI, OFFLINE)
 MODELS = {OPENAI: 'gpt-5-mini', CLAUDE: 'claude-haiku-5-5', GEMINI: 'gemini-3.5-flash-lite', OFFLINE: ''}
 KEY_ENV = {OPENAI: 'OPENAI_API_KEY', CLAUDE: 'ANTHROPIC_API_KEY', GEMINI: 'GEMINI_API_KEY'}
 LANGUAGES = ('English', 'Japanese')
+DEFAULT_EFFORT = 'Default'
+EFFORTS = {
+    OPENAI: (DEFAULT_EFFORT, 'none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'),
+    CLAUDE: (DEFAULT_EFFORT, 'low', 'medium', 'high', 'xhigh', 'max'),
+    GEMINI: (DEFAULT_EFFORT, 'minimal', 'low', 'medium', 'high'),
+    OFFLINE: (DEFAULT_EFFORT,),
+}
 MAX_RESPONSE_BYTES = 512 * 1024
 ANTHROPIC_VERSION = '2026-10-21'
 GEMINI_MODELS_URL = 'https://generativelanguage.googleapis.com/v1beta/models'
@@ -35,12 +42,15 @@ class ReviewSettings:
     model: str = MODELS[OPENAI]
     language: str = LANGUAGES[0]
     key: str = field(default='', repr=False, compare=False)
+    effort: str = DEFAULT_EFFORT
 
     def validate(self):
         if self.provider not in PROVIDERS or self.language not in LANGUAGES:
             raise ValueError('Choose a supported provider and report language.')
         if not isinstance(self.model, str) or (self.provider != OFFLINE and not valid_model(self.provider, self.model)):
             raise ValueError('Enter a valid API model ID.')
+        if self.effort not in EFFORTS[self.provider]:
+            raise ValueError('Choose a supported reasoning effort.')
         if self.key and not re.fullmatch(r'[\x21-\x7e]{1,512}', self.key):
             raise ValueError('The API key must be a single string with no spaces.')
 
@@ -65,7 +75,8 @@ class ReviewPreferences:
     def load(self):
         try:
             raw = json.loads(self.path.read_text(encoding='utf-8'))
-            if set(raw) == {'provider', 'model', 'language'}:
+            fields = {'provider', 'model', 'language'}
+            if isinstance(raw, dict) and set(raw) in (fields, fields | {'effort'}):
                 settings = ReviewSettings(**raw)
                 settings.validate()
                 return settings
@@ -76,7 +87,7 @@ class ReviewPreferences:
     def save(self, settings):
         settings.validate()
         atomic_text(self.path, json.dumps(dict(provider=settings.provider, model=settings.model,
-                                              language=settings.language), indent=2) + '\n')
+                                              language=settings.language, effort=settings.effort), indent=2) + '\n')
 
 
 class ReviewError(RuntimeError):
@@ -101,7 +112,7 @@ def _request(url, headers, payload=None):
     except HTTPError as exc:
         exc.close()
         hints = {
-            400: 'Check the API key, model ID and API settings.',
+            400: 'Check the model ID and reasoning effort. Try Default effort if the model rejects the selected level.',
             401: 'Check the API key in MCP Settings.',
             402: 'Check the billing or credit balance for the API account.',
             403: 'The API key may not have access to this model.',
@@ -190,10 +201,14 @@ def list_models(settings):
 def _generate(settings, instructions, prompt):
     settings.validate()
     key = settings.require_key()
+    effort = settings.effort if settings.effort != DEFAULT_EFFORT else None
+    token_limit = 16384 if effort in ('high', 'xhigh', 'max') else 4096
     if settings.provider == OPENAI:
-        result = _post('https://api.openai.com/v1/responses', {'Authorization': 'Bearer ' + key},
-                       dict(model=settings.model, input=prompt, instructions=instructions,
-                            store=False, max_output_tokens=1600))
+        payload = dict(model=settings.model, input=prompt, instructions=instructions,
+                       store=False, max_output_tokens=token_limit)
+        if effort:
+            payload['reasoning'] = {'effort': effort}
+        result = _post('https://api.openai.com/v1/responses', {'Authorization': 'Bearer ' + key}, payload)
         try:
             if result['status'] != 'completed':
                 raise ReviewError('OpenAI did not finish the report. Try again or select another model.')
@@ -203,9 +218,11 @@ def _generate(settings, instructions, prompt):
             raise ReviewError('OpenAI returned an unexpected response.') from None
     elif settings.provider == CLAUDE:
         headers = {'Authorization': 'Bearer ' + key, 'anthropic-version': ANTHROPIC_VERSION}
-        result = _post('https://api.anthropic.com/v1/messages', headers,
-                       dict(model=settings.model, system=instructions, max_tokens=1200,
-                            messages=[dict(role='user', content=prompt)]))
+        payload = dict(model=settings.model, system=instructions, max_tokens=token_limit,
+                       messages=[dict(role='user', content=prompt)])
+        if effort:
+            payload['output_config'] = {'effort': effort}
+        result = _post('https://api.anthropic.com/v1/messages', headers, payload)
         try:
             if result['stop_reason'] != 'end_turn':
                 raise ReviewError('Claude did not finish the report. Try again or select another model.')
@@ -214,10 +231,16 @@ def _generate(settings, instructions, prompt):
             raise ReviewError('Claude returned an unexpected response.') from None
     else:
         url = f'{GEMINI_MODELS_URL}/{settings.model}:generateContent'
+        generation = {'maxOutputTokens': token_limit}
+        if effort:
+            budgets = {'minimal': 512, 'low': 1024, 'medium': 4096, 'high': 8192}
+            generation['thinkingConfig'] = (
+                {'thinkingBudget': budgets[effort]} if settings.model.startswith('gemini-2.5-')
+                else {'thinkingLevel': effort.upper()})
         result = _post(url, {'x-goog-api-key': key}, dict(
             systemInstruction=dict(parts=[dict(text=instructions)]),
             contents=[dict(role='user', parts=[dict(text=prompt)])],
-            generationConfig=dict(maxOutputTokens=2400)))
+            generationConfig=generation))
         try:
             candidate = result['candidates'][0]
             if candidate['finishReason'] != 'STOP':
@@ -237,6 +260,44 @@ def test_connection(settings):
 
 
 MAX_REPORT_IDS = 5
+REVIEW_BATCH_SIZE = 24
+
+
+def _id_list(response, key, allowed, *, count=None):
+    fenced = re.fullmatch(r'```(?:json)?\s*(.*?)\s*```', response, flags=re.IGNORECASE | re.DOTALL)
+    try:
+        value = json.loads(fenced[1] if fenced else response)
+    except (ValueError, RecursionError):
+        return None
+    ids = value.get(key) if isinstance(value, dict) and set(value) == {key} else None
+    if (not isinstance(ids, list) or (count is not None and len(ids) != count)
+            or any(not isinstance(item, str) or item not in allowed for item in ids)
+            or len(set(ids)) != len(ids)):
+        return None
+    return tuple(ids)
+
+
+def approve_base_candidates(settings, metrics):
+    """Allow the model to accept or abstain, using anonymous numeric evidence."""
+    accepted = set()
+    rows = [dict(id=f'P{index:05}', **row) for index, row in enumerate(metrics, 1)]
+    for start in range(0, len(rows), REVIEW_BATCH_SIZE):
+        batch = rows[start:start + REVIEW_BATCH_SIZE]
+        answer = _generate(settings,
+            'Review candidate calls for unresolved Sanger consensus positions. The local signal screen has '
+            'already selected the only eligible candidate. Accept when at least two independent aligned traces '
+            'have a strong centered peak in agreement, or one trace has an agreeing instrument call at '
+            'Phred 18 or better and a centered peak at least six times the next channel. '
+            'The peak ratio is relative to the next strongest channel; Phred 0 means no agreeing instrument score. '
+            'If uncertain, omit the ID. Return exactly one JSON object with the key "approved_ids" and '
+            'a list of distinct IDs from this batch. Do not provide bases or prose.',
+            json.dumps(batch, allow_nan=False))
+        allowed = {row['id'] for row in batch}
+        ids = _id_list(answer, 'approved_ids', allowed)
+        if ids is None:
+            raise ReviewError('The model did not return valid base review decisions.')
+        accepted.update(int(identifier[1:]) - 1 for identifier in ids)
+    return accepted
 
 
 def prioritize_contigs(settings, summary):
@@ -252,17 +313,10 @@ def prioritize_contigs(settings, summary):
         'Give preference to stale contigs, more flags and weak support. Do not include any prose, '
         'counts, base calls, or claims about accuracy.',
         json.dumps(summary, allow_nan=False))
-    fenced = re.fullmatch(r'```(?:json)?\s*(.*?)\s*```', response, flags=re.IGNORECASE | re.DOTALL)
-    try:
-        value = json.loads(fenced[1] if fenced else response)
-    except (ValueError, RecursionError):
-        value = None
-    ids = value.get('priority_ids') if isinstance(value, dict) and set(value) == {'priority_ids'} else None
-    if (not isinstance(ids, list) or len(ids) != count
-            or any(not isinstance(item, str) or item not in flagged for item in ids)
-            or len(set(ids)) != count):
+    ids = _id_list(response, 'priority_ids', flagged, count=count)
+    if ids is None:
         raise ReviewError('The model did not return a valid review order.')
-    return tuple(ids)
+    return ids
 
 
 def ordered_contigs(rows, priority):
@@ -276,11 +330,13 @@ def format_report(settings, summary, priority=(), *, failure=False):
     total, unused, single, failed = (summary[k] for k in
         ('contigs_total', 'unassembled_reads', 'single_read_contigs', 'failed_groups'))
     flags, flagged, stale = (summary[k] for k in ('review_flags', 'flagged_contigs', 'stale_contigs'))
+    red, replaced = summary.get('red_flags', 0), summary.get('replaced_n', 0)
     trimmed = summary['fully_trimmed_reads']
     targets = [r['id'] for r in ordered_contigs(summary['contigs'], priority)
                if r['review_flags']][:MAX_REPORT_IDS]
     more = flagged - len(targets)
     online = settings.provider != OFFLINE and not failure
+    model_label = settings.model if settings.effort == DEFAULT_EFFORT else f'{settings.model} / {settings.effort}'
 
     if settings.language == 'Japanese':
         if built:
@@ -300,15 +356,19 @@ def format_report(settings, summary, priority=(), *, failure=False):
         assembly += '、'.join(notes) + 'がありました。' if notes else '未組み立てリードや単一リードのコンティグはありませんでした。'
         if not total:
             return assembly
-        lead = f'[{settings.model}] で品質指標を確認しました。' if online else ''
+        lead = f'[{model_label}] で品質を確認しました。' if online else ''
+        if 'replaced_n' in summary:
+            lead += f'Nを{replaced}か所、自動で置換しました。'
         if flags:
             ids = '、'.join(targets) + (f'（ほか{more}件）' if more else '')
             review = f'コンティグ {ids} の計{flags}か所を手動で確認してください。［Open Contig］でクロマトグラムを表示できます。'
+            if red:
+                review += f'赤いフラッグ{red}か所は、AIレビュー後もNのままです。優先して確認してください。'
         else:
             review = '塩基のレビューフラグはありません。' if stale or single or unused or failed else '手動確認が必要な警告はありません。'
         if stale:
             review += f'再組み立てが必要なコンティグが{stale}件あります。'
-        fallback = '\nAIレビューを取得できなかったため、端末内の結果を表示しています。' if failure else ''
+        fallback = '\nAIレビューの一部を完了できませんでした。端末内の結果を表示しています。' if failure else ''
     else:
         def amount(number, noun):
             return f'{number} {noun}' + ('' if number == 1 else 's')
@@ -330,13 +390,17 @@ def format_report(settings, summary, priority=(), *, failure=False):
         assembly += ' ' + ('Found ' + ', '.join(notes) + '.' if notes else 'No unassembled reads or single-read contigs.')
         if not total:
             return assembly
-        lead = f'[{settings.model}] reviewed the quality metrics. ' if online else ''
+        lead = f'[{model_label}] reviewed quality. ' if online else ''
+        if 'replaced_n' in summary:
+            lead += f'Automatically replaced N at {amount(replaced, "site")}. '
         if flags:
             ids = ', '.join(targets) + (f' (+{more} more)' if more else '')
             review = f'Manually check {amount(flags, "flagged site")} in {ids}. Choose Open Contig to view the chromatogram.'
+            if red:
+                review += f' Check the {amount(red, "red flag")} first. These sites are still N after AI review.'
         else:
             review = 'No base review flags.' if stale or single or unused or failed else 'No warnings require manual review.'
         if stale:
             review += f' Rebuild required for {amount(stale, "contig")}.'
-        fallback = '\nAI review unavailable. Showing local results.' if failure else ''
+        fallback = '\nPart of the AI review could not be completed. See Details.' if failure else ''
     return assembly + '\n\n' + lead + review + fallback

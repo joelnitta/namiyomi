@@ -25,6 +25,8 @@ def quality_snapshot(project, made=(), failed=0):
     rows = triage(project)
     counts = Counter(row['category'] for row in rows)
     assigned = {rid for contig in project.contigs.values() for rid in contig.read_ids()}
+    red = {row['key']: sum(project.contigs[row['key']].ai_unresolved(i) for i in row['issue_columns'])
+           for row in rows}
     used = {rid for key in made for rid in project.contigs[key].read_ids()} & project.reads.keys()
     unassembled = set(project.reads) - assigned
     summary = dict(reads=len(project.reads), reads_used=len(used), unassembled_reads=len(unassembled),
@@ -36,12 +38,13 @@ def quality_snapshot(project, made=(), failed=0):
                    single_read_contigs=sum(r['status'] in ('single_read', '片方向') or len(r['reads']) == 1
                                            for r in rows),
                    review_flags=sum(len(r['issue_columns']) for r in rows),
+                   red_flags=sum(red.values()),
                    flagged_contigs=sum(bool(r['issue_columns']) for r in rows),
                    stale_contigs=sum(r['stale'] for r in rows),
                    uncalled_bases=sum(r['n_calls'] for r in rows),
                    omitted_contigs=max(0, len(rows) - MAX_ROWS), contigs=[])
     ordered = sorted(enumerate(rows, 1), key=lambda item: (
-        not bool(item[1]['issue_columns']),
+        not bool(item[1]['issue_columns']), not bool(red[item[1]['key']]),
         not item[1]['stale'], item[1]['category'] != NEEDS_REVIEW,
         item[1]['category'] != SINGLE_READ, -len(item[1]['issue_columns']), item[0]))
     local_rows = []
@@ -49,7 +52,7 @@ def quality_snapshot(project, made=(), failed=0):
         identifier = f'C{index:03}'
         metrics = dict(id=identifier, length_bp=row['length'],
             read_count=len(row['reads']), category=row['category'], stale=row['stale'],
-            review_flags=len(row['issue_columns']), uncalled_bases=row['n_calls'],
+            review_flags=len(row['issue_columns']), red_flags=red[row['key']], uncalled_bases=row['n_calls'],
             overlap_bp=row['overlap'], overlap_identity=row['identity'])
         if len(local_rows) < MAX_ROWS:
             summary['contigs'].append(metrics)

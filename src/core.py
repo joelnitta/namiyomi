@@ -20,6 +20,7 @@ from Bio import Align, SeqIO
 from Bio.Seq import Seq
 
 ALPHABET = set('ACGTRYSWKMBDHVN')
+AMBIGUOUS = ALPHABET - set('ACGT')
 COMPLEMENT = dict(zip('ACGTRYSWKMBDHVN', 'TGCAYRSWMKVHDBN'))
 PRIMER_DIRECTIONS = {'af3':'F', 'cr3':'R', '1610f':'F', 'rrfq':'R', '1ir1':'F', 'f':'R'}
 
@@ -218,6 +219,7 @@ class Contig:
     black_marks: dict[str, bool] = field(default_factory=dict)
     name: str = ''
     sources: list[Source] = field(default_factory=list)
+    ai_review: dict[str, str] = field(default_factory=dict)
 
     def read_ids(self):
         return [s.read_id for s in self.sources] if self.sources else [rid for rid in (self.f_id,self.r_id) if rid]
@@ -227,7 +229,12 @@ class Contig:
         return self.name or f'{self.sample}_{self.marker}'
 
     def call(self, col):
-        return self.overrides.get(str(col), self.columns[col].call)
+        key = str(col)
+        return self.overrides.get(key, self.ai_review.get(key, self.columns[col].call))
+
+    def ai_unresolved(self, col):
+        key = str(col)
+        return self.ai_review.get(key) == 'N' and self.black_marks.get(key, True)
 
     def sequence(self):
         out=[]
@@ -240,8 +247,10 @@ class Contig:
     def issues(self):
         out=[]
         for i,c in enumerate(self.columns):
-            automatic=(c.reason not in ('agree','single') and str(i) not in self.overrides) or self.call(i)=='N'
-            if self.black_marks.get(str(i),automatic):out.append(i)
+            key = str(i)
+            automatic = (self.call(i) in AMBIGUOUS or
+                         (c.reason not in ('agree', 'single') and key not in self.overrides and key not in self.ai_review))
+            if self.black_marks.get(key, automatic):out.append(i)
         return out
 
 
@@ -322,7 +331,7 @@ class Project:
             base=read.edits.get(str(raw),trace.sequence[raw])
             if not base:continue
             q=trace.qualities[raw]
-            automatic=q is None or q<self.settings['min_quality'] or base=='N'
+            automatic=q is None or q<self.settings['min_quality'] or base in AMBIGUOUS
             if read.black_marks.get(str(raw),automatic):issues.append(raw)
         return issues
 
@@ -378,6 +387,8 @@ class Project:
                     col.call,col.reason,col.quality=recall(co.sources,pos,self.settings['min_quality'])
                     co.overrides.pop(str(pos),None)
                     co.black_marks.pop(str(pos),None)
+                    co.ai_review.pop(str(pos),None)
+                self._call_double_peaks(co, affected)
                 sync_legacy(co)
                 if not co.stale:co.signature=self.signature(co.read_ids())
                 continue
@@ -389,6 +400,7 @@ class Project:
             for index,b in enumerate(bases):
                 if b.raw in changed:
                     bases[index]=Base(display or '-',b.raw,None,True);affected.add(index)
+            recalled = []
             for pos,col in enumerate(co.columns):
                 source=col.f if direction=='F' else col.r
                 if source not in affected:continue
@@ -400,6 +412,9 @@ class Project:
                 col.call,col.reason,col.quality=choose_call(f,r,self.settings['min_quality'],col.reason=='indel' and not removed)
                 co.overrides.pop(str(pos),None)
                 co.black_marks.pop(str(pos),None)
+                co.ai_review.pop(str(pos),None)
+                recalled.append(pos)
+            self._call_double_peaks(co, recalled)
             if not co.stale:co.signature=self.signature(self.groups()[self.key(co.sample,co.marker)])
         self.invalidate()
         return True
@@ -475,9 +490,19 @@ class Project:
         columns=[Column(None,None,*recall(sources,i,self.settings['min_quality'])) for i in range(len(sources[0].mapping))]
         co=Contig(sample,marker,None,None,[],[],columns,self.signature(ids),overlap,identity,
                   'assembled' if len(ids)>1 else 'single_read',name=name,sources=sources)
+        self._call_double_peaks(co, range(len(columns)))
         sync_legacy(co);self.contigs[key]=co;self.dirty=True
         self.normalize_orientation(key)
         return key
+
+    def _call_double_peaks(self, contig, positions):
+        if self.settings.get('call_double_peaks', False):
+            from base_review import double_peak_code
+            for pos in positions:
+                code = double_peak_code(self, contig, pos)
+                if code:
+                    column = contig.columns[pos]
+                    column.call, column.reason, column.quality = code, 'double_peak', None
 
     def normalize_orientation(self,key):
         """Match the first sufficiently homologous contig, never an unrelated locus.
@@ -526,6 +551,7 @@ class Project:
         co.overrides={str(n-1-int(i)):COMPLEMENT.get(value,value) for i,value in co.overrides.items()}
         co.insertions={str(n-int(i)):str(Seq(value).reverse_complement()) for i,value in co.insertions.items()}
         co.black_marks={str(n-1-int(i)):value for i,value in co.black_marks.items()}
+        co.ai_review={str(n-1-int(i)):COMPLEMENT[value] for i,value in co.ai_review.items()}
         sync_legacy(co);co.signature=self.signature(co.read_ids());self.dirty=True
 
     def assemble(self, key):
@@ -569,6 +595,7 @@ class Project:
             columns.append(Column(i,j,call,reason,q))
         contig=Contig(sample,marker,chosen.get('F'),chosen.get('R'),fb,rb,columns,
                       self.signature(ids),overlap,identity,status)
+        self._call_double_peaks(contig, range(len(columns)))
         if key in self.contigs:contig.name=self.contigs[key].name
         self.contigs[key]=contig;self.dirty=True
         return contig
@@ -596,8 +623,12 @@ class Project:
                 # Windows cannot make a relative path across different drives.
                 row['path']=Path(read.path).resolve().as_posix()
             reads.append(row)
+        contigs = {key: asdict(contig) for key, contig in self.contigs.items()}
+        for row in contigs.values():
+            if not row['ai_review']:
+                del row['ai_review']
         return dict(format='sanger-edit-project',version=1,settings=self.settings,trim_settings=self.trim_settings,appearance=self.appearance,find_settings=self.find_settings,
-                     reads=reads,contigs={k:asdict(c) for k,c in self.contigs.items()})
+                     reads=reads,contigs=contigs)
 
     def export_project(self,path):
         """Write a copy without changing the current document path/dirty state."""
@@ -647,8 +678,11 @@ class Project:
         from sequence_find import validate_find_settings
         project.find_settings.update(raw.get('find_settings',{}));validate_find_settings(project.find_settings)
         validate_settings(project.settings)
+        double_peaks = project.settings.get('call_double_peaks', False)
         project.settings={k:cast(project.settings[k]) for k,cast in
             [('min_quality',int),('min_overlap',int),('min_identity',float)]}
+        if double_peaks:
+            project.settings['call_double_peaks'] = True
         for row in raw['reads']:
             row=dict(row);row['path']=str((path.parent/row['path']).resolve())
             read=Read(**row);trace=Trace.load(read.path)
@@ -673,6 +707,10 @@ class Project:
             for i,value in contig.overrides.items():
                 if not 0<=int(i)<len(contig.columns) or len(value)>1:raise ValueError('Invalid consensus edit position.')
                 base_text(value,empty=True)
+            for i, value in contig.ai_review.items():
+                if (not 0 <= int(i) < len(contig.columns) or value not in ('A', 'C', 'G', 'T', 'N')
+                        or contig.columns[int(i)].call != 'N'):
+                    raise ValueError('Invalid AI consensus review position or base.')
             for i,value in contig.insertions.items():
                 if not 0<=int(i)<=len(contig.columns):raise ValueError('Invalid consensus insertion position.')
                 base_text(value)
@@ -699,6 +737,8 @@ def validate_read(read,trace):
 
 
 def validate_settings(settings):
+    if type(settings.get('call_double_peaks', False)) is not bool:
+        raise ValueError('Invalid double peak setting.')
     if not 0<=int(settings['min_quality'])<=93:raise ValueError('Minimum Phred Q must be between 0 and 93.')
     if not 1<=int(settings['min_overlap'])<=10000:raise ValueError('Minimum overlap must be between 1 and 10000 bp.')
     if not math.isfinite(float(settings['min_identity'])) or not 0<float(settings['min_identity'])<=1:
@@ -712,6 +752,8 @@ def validate_trim_settings(settings):
 
 
 def validate_appearance(settings):
+    if type(settings.get('smooth_trace', False)) is not bool:
+        raise ValueError('Invalid chromatogram smoothing setting.')
     if not 8<=int(settings['font_size'])<=20:raise ValueError('Base font size must be between 8 and 20.')
     if set(settings['colors'])!=set('ACGT') or any(not re.fullmatch(r'#[0-9a-fA-F]{6}',v) for v in settings['colors'].values()):
         raise ValueError('Choose valid A, C, G and T colors.')
