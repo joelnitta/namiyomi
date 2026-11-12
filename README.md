@@ -44,7 +44,7 @@ Version 0.1.0 is an early release. Back up your AB1 files and projects, and chec
 - Finds consensus subsequences on either strand, with exact matching by default and an adjustable 80–100% identity threshold.
 - Saves editable projects, writes local recovery snapshots, and exports FASTA without modifying the original AB1 files.
 
-The interface deliberately omits cloning design, restriction mapping, BLAST, phylogenetics, and genome-scale assembly. Its scope is the work between opening Sanger reads and obtaining a reviewed sequence. No account or cloud service is needed to use the application, and sequence data are not uploaded.
+The interface deliberately omits cloning design, restriction mapping, BLAST, phylogenetics, and genome-scale assembly. Its scope is the work between opening Sanger reads and obtaining a reviewed sequence. The regular editor works offline without an account.
 
 ## Try the demonstration
 
@@ -67,6 +67,12 @@ If an assembly needs to be redone, right-click its contig and choose **Return Re
 **Assembly > Build Contig (AUTO)** groups unused reads by the part of the original filename before its first underscore. For example, `sample07_forward.ab1` and `sample07_reverse.ab1` form the group `sample07`. A successful group receives that name as its contig identifier.
 
 Use AUTO only when each prefix identifies one specimen **and one locus**. Reads already used by an existing manual or AUTO contig are excluded, and existing contigs are not rebuilt. Use the manual command when filenames do not follow this convention. A single-read group can form a contig, but it does not provide independent multi-read confirmation.
+
+### Optional MCP review and command-line batch processing
+
+On the source branch with MCP, choose **MCP > Settings** to configure OpenAI, Claude, Gemini or the **Offline preview**. **MCP > Full auto mode by LLM** assembles unassigned reads locally and opens a quality report. The online options send quality counts and anonymous contig IDs; sequences, traces and filenames stay on the device. The report does not edit calls or mark flags as reviewed. The original v0.1.0 downloads do not include the MCP menu.
+
+The source also includes a local batch command for folder-based assembly and FASTA export, with optional CSV grouping. See the [MCP and batch guide](docs/BATCH.md) for setup and examples.
 
 ### Find a sequence on either strand
 

@@ -11,14 +11,16 @@ Run from the command line::
 """
 import argparse
 import csv
+import io
 import json
 import re
 import sys
+import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
 from types import SimpleNamespace
 
-from core import (Project, atomic_text, export_markers, fasta_text, validate_settings,
+from core import (Project, atomic_text, export_markers, fasta_text, marker_filename, validate_settings,
                   validate_trim_settings)
 
 CLEAN, NEEDS_REVIEW, SINGLE_READ, FAILED = 'clean', 'needs_review', 'single_read', 'failed'
@@ -66,7 +68,7 @@ def read_sheet(csv_path):
     with open(csv_path, newline='', encoding='utf-8-sig') as handle:
         reader = csv.DictReader(handle)
         header = [(h or '').strip().lower() for h in (reader.fieldnames or [])]
-        if not set(SHEET_COLUMNS) <= set(header):
+        if len(set(header)) != len(header) or not set(SHEET_COLUMNS) <= set(header):
             raise ValueError('The sample sheet needs the columns: file, sample, marker.')
         reader.fieldnames = header
         for number, row in enumerate(reader, start=2):
@@ -170,16 +172,17 @@ def triage(project):
         issues = contig.issues()
         if contig.stale:
             category = NEEDS_REVIEW
-        elif contig.status == 'single_read':
+        elif contig.status in ('single_read', '片方向') or len(contig.read_ids()) == 1:
             category = SINGLE_READ
         elif issues:
             category = NEEDS_REVIEW
         else:
             category = CLEAN
+        seq = contig.sequence()
         rows.append(dict(key=key, name=contig.sequence_name, sample=contig.sample, marker=contig.marker,
                          category=category, status=contig.status, stale=contig.stale,
-                         reads=[Path(project.reads[r].path).name for r in contig.read_ids()],
-                         length=len(contig.sequence()), overlap=contig.overlap,
+                         reads=[Path(project.reads[r].path).name for r in contig.read_ids() if r in project.reads],
+                         length=len(seq), n_calls=seq.count('N'), overlap=contig.overlap,
                          identity=None if contig.identity is None else round(contig.identity, 4),
                          issue_columns=issues))
     return sorted(rows, key=lambda r: (r['sample'], r['marker']))
@@ -199,21 +202,27 @@ def _export(project, rows, output_dir, allow_single):
     keep = {k: c for k, c in project.contigs.items() if k not in skip}
     if not keep:
         return [], skipped, sorted(invalid)
+    filenames = {}
+    for contig in keep.values():
+        name = marker_filename(contig.marker).casefold()
+        if filenames.setdefault(name, contig.marker) != contig.marker:
+            raise ValueError('Marker names produce the same FASTA filename (ignoring case).')
     return export_markers(SimpleNamespace(contigs=keep), output_dir, allow_single=True), skipped, sorted(invalid)
 
 
 def summary_tsv(summary):
-    lines = ['name\tsample\tmarker\tcategory\treads\tlength\toverlap\tidentity\tflagged_columns\terror']
+    output = io.StringIO()
+    writer = csv.writer(output, delimiter='\t', lineterminator='\r\n')
+    writer.writerow(('name', 'sample', 'marker', 'category', 'reads', 'length', 'overlap', 'identity', 'flagged_columns', 'error'))
     for r in summary['contigs']:
-        lines.append('\t'.join(str(x) for x in (
+        writer.writerow((
             r['name'], r['sample'], r['marker'], r['category'], ','.join(r['reads']), r['length'],
             r['overlap'], '' if r['identity'] is None else r['identity'],
-            ','.join(map(str, r['issue_columns'])), '')))
+            ','.join(map(str, r['issue_columns'])), ''))
     for f in summary['failed']:
         sample, _, marker = f['group'].partition('/')
-        lines.append('\t'.join((f['group'], sample, marker, FAILED, ','.join(f['files']),
-                                '', '', '', '', f['error'].replace('\t', ' ').replace('\n', ' '))))
-    return '\n'.join(lines) + '\n'
+        writer.writerow((f['group'], sample, marker, FAILED, ','.join(f['files']), '', '', '', '', f['error']))
+    return output.getvalue()
 
 
 def run_batch(input_dir, output_dir, *, sheet=None, settings=None, trim=None, allow_single=False,
@@ -222,33 +231,44 @@ def run_batch(input_dir, output_dir, *, sheet=None, settings=None, trim=None, al
 
     ``sheet`` is a CSV path (or None for GUI-style prefix grouping). Returns a JSON-serializable summary.
     """
-    input_dir, output_dir = Path(input_dir).resolve(), Path(output_dir).resolve()
-    if output_dir == input_dir:
-        raise ValueError('Choose an output folder different from the input folder.')
+    input_dir = Path(input_dir).resolve()
     paths = find_ab1(input_dir)
     plan = plan_groups(paths, read_sheet(sheet) if sheet else None)
     if dry_run:
         return dict(dry_run=True, input=str(input_dir), ab1_files=len(paths), plan=plan.to_dict())
     if not paths:
         raise ValueError(f'No .ab1 files found in {input_dir}')
+    if output_dir is None:
+        raise ValueError('Choose a new output folder with --output.')
+    output_dir = Path(output_dir)
+    if output_dir.is_symlink() or output_dir.exists():
+        raise ValueError('Choose a new output folder; existing paths are kept.')
+    output_dir = output_dir.resolve()
 
     project, report = build_project(plan, settings, trim)
     rows = triage(project)
-    output_dir.mkdir(parents=True, exist_ok=True)
     project_path = output_dir / 'project.json'
-    project.save(project_path)
-    fasta_files, skipped, invalid_ids = _export(project, rows, output_dir, allow_single)
     counts = {c: sum(r['category'] == c for r in rows) for c in CATEGORIES}
     counts[FAILED] = len(report['failed'])
-    summary = dict(dry_run=False, input=str(input_dir), output=str(output_dir), mode=plan.mode,
-                   ab1_files=len(paths), settings=project.settings, trim_settings=project.trim_settings,
-                   counts=counts, contigs=rows, failed=report['failed'],
-                   read_errors=report['read_errors'], empty_after_trim=sorted(report['empty_after_trim']),
-                   unassigned=plan.unassigned, sheet_missing=plan.sheet_missing,
-                   project=str(project_path), fasta=fasta_files, single_read_not_exported=skipped,
-                   not_exported_invalid_sample_id=invalid_ids)
-    atomic_text(output_dir / 'summary.json', json.dumps(summary, indent=2, ensure_ascii=False) + '\n')
-    atomic_text(output_dir / 'summary.tsv', summary_tsv(summary))
+    output_dir.parent.mkdir(parents=True, exist_ok=True)
+    # A sibling folder gives the staged project the same relative AB1 paths.
+    # Publish only after all exports are validated and written successfully.
+    with tempfile.TemporaryDirectory(prefix='.namiyomi-batch-', dir=output_dir.parent) as directory:
+        stage = Path(directory)
+        project.export_project(stage / 'project.json')
+        fasta_files, skipped, invalid_ids = _export(project, rows, stage, allow_single)
+        summary = dict(dry_run=False, input=str(input_dir), output=str(output_dir), mode=plan.mode,
+                       ab1_files=len(paths), settings=project.settings, trim_settings=project.trim_settings,
+                       counts=counts, contigs=rows, failed=report['failed'],
+                       read_errors=report['read_errors'], empty_after_trim=sorted(report['empty_after_trim']),
+                       unassigned=plan.unassigned, sheet_missing=plan.sheet_missing,
+                       project=str(project_path), fasta=fasta_files, single_read_not_exported=skipped,
+                       not_exported_invalid_sample_id=invalid_ids)
+        atomic_text(stage / 'summary.json', json.dumps(summary, indent=2, ensure_ascii=False) + '\n')
+        atomic_text(stage / 'summary.tsv', summary_tsv(summary))
+        if output_dir.is_symlink() or output_dir.exists():
+            raise ValueError('The output folder now exists. Choose a new folder.')
+        stage.rename(output_dir)
     return summary
 
 
@@ -281,7 +301,7 @@ def format_summary(summary):
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__.split('\n\n')[0])
     parser.add_argument('--input', required=True, type=Path, help='Folder of .ab1 files (never modified)')
-    parser.add_argument('--output', required=True, type=Path, help='Output folder (required; kept separate from the input)')
+    parser.add_argument('--output', type=Path, help='New output folder (required unless using --dry-run)')
     parser.add_argument('--sheet', type=Path, help='CSV with columns file,sample,marker (default: group by filename prefix like the GUI)')
     parser.add_argument('--allow-single', action='store_true', help='Also export single-read sequences')
     parser.add_argument('--dry-run', action='store_true', help='List the planned groups and write nothing')

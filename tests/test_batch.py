@@ -62,8 +62,21 @@ class BatchTests(unittest.TestCase):
     def test_deterministic_outputs(self):
         batch.run_batch(self.demo, self.out)
         first = {n: (self.out / n).read_bytes() for n in ('summary.json', 'summary.tsv', 'auto.fasta')}
-        batch.run_batch(self.demo, self.out)  # rerun into an existing output directory
+        with self.assertRaisesRegex(ValueError, 'new output folder'):
+            batch.run_batch(self.demo, self.out)
+        out2 = self.root / 'out2'
+        batch.run_batch(self.demo, out2)
         self.assertEqual(first, {n: (self.out / n).read_bytes() for n in first})
+        for name in ('summary.tsv', 'auto.fasta'):
+            self.assertEqual(first[name], (out2 / name).read_bytes())
+
+    def test_colliding_marker_filenames_do_not_publish_partial_results(self):
+        sheet = self.root / 'sheet.csv'
+        sheet.write_text('file,sample,marker\nDemo01_F.ab1,S1,rbcL\nDemo01_R.ab1,S1,rbcL\n'
+                         'Demo02_F.ab1,S2,RBCL\nDemo02_R.ab1,S2,RBCL\n', encoding='utf-8')
+        with self.assertRaisesRegex(ValueError, 'same FASTA filename'):
+            batch.run_batch(self.demo, self.out, sheet=sheet)
+        self.assertFalse(self.out.exists())
 
     def test_sheet_mode_groups_by_sheet_and_reports_gaps(self):
         sheet = self.root / 'sheet.csv'

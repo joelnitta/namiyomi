@@ -5,7 +5,6 @@ import bisect
 import copy
 import json
 import sys
-import re
 import os
 from datetime import datetime,timedelta,timezone
 import tkinter as tk
@@ -17,6 +16,8 @@ from core import (ALPHABET, COMPLEMENT, Base, Project, ScopedSnapshot, atomic_te
                   bases_for_read, classify_import_paths, fasta_text, validate_read, validate_settings,
                   validate_trim_settings,validate_appearance)
 from assembly import reverse_bases
+from auto_assembly import assemble_groups,unassembled_groups
+from mcp_dialogs import McpDialogs
 import native_menus
 from trace_plot import trace_samples
 from app_info import APP_NAME, APP_VERSION, DEVELOPER, LOCATION
@@ -130,6 +131,7 @@ class Editor(TkinterDnD.Tk):
         self.find_job=None;self.find_cache=None;self.find_results=[];self.find_index=-1;self.find_map=()
         self.status=tk.StringVar(value='')
         self.confirmations=ConfirmationPreferences()
+        self.mcp=McpDialogs(self)
         self.revision=0
         from recovery import RecoveryStore
         self.recovery=RecoveryStore()
@@ -164,6 +166,7 @@ class Editor(TkinterDnD.Tk):
           ('View',[('First Read',lambda:self.open_read_direction('F'),'⌘1'),('Second Read',lambda:self.open_read_direction('R'),'⌘2'),('Contig',self.open_contig_view,'⌘3')]),
           ('Assembly',[('Build Contig (manual)',self.build_manual,'⌘B'),('Build Contig (AUTO)',self.build_auto,''),('Return Reads to AB1',self.return_reads_to_ab1,''),('Unify Contig Orientation',self.unify_orientations,'')]),
           ('Settings',[('Trimming Settings…',self.trimming_dialog,''),('Assembly Settings…',self.settings_dialog,''),('Find Settings…',self.find_settings_dialog,''),('Appearance…',self.appearance_dialog,''),('Confirmations…',self.confirmations_dialog,'')]),
+          ('MCP',[('Settings…',self.mcp.settings,''),('Full auto mode by LLM…',self.mcp.full_auto,'')]),
           ('Help',[('How To',self.help_dialog,''),('Developer',self.developer_dialog,''),('License and Citation',self.license_dialog,'')])]
         for title,items in menus:
             menu=tk.Menu(bar,tearoff=False,postcommand=native_menus.prune)
@@ -1327,31 +1330,13 @@ class Editor(TkinterDnD.Tk):
         self.tree.selection_set(item);self.tree.see(item)
 
     def build_auto(self):
-        # Match the unassembled AB1 section of the sidebar. A read remains
-        # assigned even if its contig is stale or uses the legacy F/R fields;
-        # AUTO must never rebuild an existing manual/automatic contig implicitly.
-        assigned={rid for co in self.project.contigs.values() for rid in co.read_ids()}
-        groups={}
-        for rid,read in self.project.reads.items():
-            if rid in assigned:continue
-            prefix=Path(read.path).stem.split('_',1)[0]
-            groups.setdefault(prefix,[]).append(rid)
+        groups=unassembled_groups(self.project)
         if not groups:
             self.status.set('No unassembled AB1 reads. Existing contigs were left unchanged.');return
-        entry=self.history_entry();made=[];errors=[]
+        entry=self.history_entry()
         self.configure(cursor='watch');self.update_idletasks()
         try:
-            for prefix,ids in groups.items():
-                # A newly imported group may reuse an earlier filename prefix.
-                # Allocate a fresh key/name instead of replacing that contig.
-                key=self.project.key(prefix,'auto');index=2
-                while key in self.project.contigs:
-                    key=self.project.key(prefix,f'auto_{index}');index+=1
-                base=re.sub(r'[\s>|\x00-\x1f]','_',prefix);name=base;index=2
-                names={co.sequence_name for co in self.project.contigs.values()}
-                while name in names:name=f'{base}_{index}';index+=1
-                try:made.append(self.project.assemble_reads(ids,name,key))
-                except Exception as exc:errors.append(f'{prefix}: {exc}')
+            made,errors=assemble_groups(self.project,groups)
         finally:self.configure(cursor='')
         if made:self.remember(entry)
         self.refresh_tree()
