@@ -8,7 +8,7 @@ from unittest.mock import Mock, patch
 
 from Bio.Seq import Seq
 from app import Editor
-from auto_assembly import abi_sample_groups, assemble_groups
+from auto_assembly import assemble_groups
 from core import Project
 from mcp_server import quality_snapshot
 from test_core import synthetic
@@ -120,22 +120,16 @@ class AutoAssemblyScopeTests(unittest.TestCase):
         self.assertEqual(set(one.read_ids()),set(first));self.assertEqual(set(two.read_ids()),set(second))
         self.assertEqual((one.sequence_name,two.sequence_name),('a_b','a_b_2'))
 
-    def test_abi_names_group_by_sample_and_keep_runs_separate(self):
+    def test_auto_does_not_infer_a_sample_id_from_abi_names(self):
         project = Project()
-        expected = {}
-        for folder, names, group in (
-            ('run1', ('A01_64ar', 'A02_64bf'), '64'),
-            ('run2', ('64f_001_A09', '64r_A10'), '64_2'),
-            ('run3', ('13a-PREMIX', '13c-PREMIX'), '13'),
-        ):
-            ids = self.pair(project, 'unused', folder)
-            for rid, name in zip(ids, names):
-                project.reads[rid].path = f'/inputs/{folder}/{name}.ab1'
-            expected[group] = ids
-        for folder, name in (('run1', '98f_A09'), ('run2', '98r_A10'), ('run3', 'HiDi_G09')):
-            read, _ = synthetic(project, 'ACGT' * 30, '')
-            read.path = f'/inputs/{folder}/{name}.ab1'
-        self.assertEqual(abi_sample_groups(project), expected)
+        mismatched = self.pair(project, 'unused', 'one')
+        normalized = self.pair(project, 'unused', 'two', seed=74)
+        for rid, name in zip(mismatched + normalized,
+                             ('A01_64af', '64_cr_A02', '65_rbcL_af', '65_rbcL_cr')):
+            project.reads[rid].path = f'/inputs/{name}.ab1'
+        self.run_auto(self.controller(project))
+        by_name = {co.sequence_name: co.read_ids() for co in project.contigs.values()}
+        self.assertEqual(by_name, {'A01': mismatched[:1], '64': mismatched[1:], '65': normalized})
 
     def test_fully_trimmed_read_does_not_prevent_usable_mate_from_assembling(self):
         project = Project()
@@ -147,22 +141,6 @@ class AutoAssemblyScopeTests(unittest.TestCase):
         summary, _ = quality_snapshot(project, made)
         self.assertEqual((summary['reads_used'], summary['fully_trimmed_reads'], summary['single_read_contigs']),
                          (1, 1, 1))
-
-    def test_abi_normalizes_primer_separators_without_merging_distinct_samples(self):
-        project = Project()
-        expected = {}
-        for folder, names, group in (
-            ('one', ('660af_A01', '660_cr_A02'), '660'),
-            ('two', ('660-af', '660bf'), '660_3'),
-            ('one', ('660_2_af_F01', '660_2cr_F03'), '660_2'),
-            ('fas', ('AY226_rbcL_af3-PREMIX', 'AY226-rbcLcr3_PREMIX'), 'AY226_rbcL'),
-            ('fas', ('A01_rbcL_af3', 'A01_rbcL_cr3'), 'A01_rbcL'),
-        ):
-            ids = self.pair(project, 'unused', folder)
-            for rid, name in zip(ids, names):
-                project.reads[rid].path = f'/inputs/{folder}/{name}.ab1'
-            expected[group] = ids
-        self.assertEqual(abi_sample_groups(project), expected)
 
 
 if __name__=='__main__':unittest.main()

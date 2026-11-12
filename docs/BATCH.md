@@ -16,17 +16,14 @@ describe the source branch with MCP; the original v0.1.0 downloads predate it.
    **Test Connection** sends a short test prompt and can incur an API charge.
    The API account needs access to the selected model. The ChatGPT and Claude
    web app subscriptions do not act as API credentials.
-3. Click **Apply**, then open **MCP > Full auto mode by LLM**. Under **Group by**,
-   choose **Filename prefix** for names such as `sample07_F.ab1`, or **ABI sample ID**
-   for names such as `A01_64ar.ab1` and `A02_64bf.ab1`, `782f_A09.ab1` and
-   `782r_A10.ab1`, or `13a-PREMIX.ab1` and `13c-PREMIX.ab1`. It also groups
-   rbcL names such as `AY226_rbcL_af3-PREMIX.ab1` and `AY226_rbcL_cr3-PREMIX.ab1`.
-   The app recognizes the sample and primer even if the separator before the
-   primer varies. For new rbcL files, use `SampleID_rbcL_Primer.ab1` consistently.
-   Use one locus per source folder. **View ungrouped reads** lists filenames
-   that need a closer look. Click
-   **OK** to assemble and review. **Edit > Undo** removes the contigs built by
-   that run together.
+3. Click **Apply**, then **MCP > Full auto mode by LLM > OK**. Local assembly uses
+   the same rule as **Build Contig (AUTO)**: group by the filename before the
+   first underscore. For rbcL files, rename them before importing, for example
+   `64_rbcL_af.ab1` and `64_rbcL_cr.ab1`. Use IDs without underscores and
+   make each prefix refer to one specimen and one locus across the project.
+   Previously assembled contigs keep their edits and flags. If all reads are
+   assembled, this step reports on the current contigs. You can undo newly
+   assembled contigs together with **Edit > Undo**.
 4. Read the assembly counts and any manual review warnings above the table.
    Select a contig and click **Open Contig** to jump to its first flagged site,
    if it has one. Save or export using the normal File menu. If the API call
