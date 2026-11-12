@@ -21,9 +21,10 @@ describe the source branch with MCP; the original v0.1.0 downloads predate it.
    refer to one specimen and one locus. Previously assembled contigs keep their
    edits and flags. If all reads are assembled, this step reports on the current
    contigs. You can undo newly assembled contigs together with **Edit > Undo**.
-4. Review the table and report. Select a contig and click **Open Contig** to
-   inspect the traces. Save or export using the normal File menu. If the API
-   call fails, the local contigs and quality results are still available.
+4. Read the assembly counts and any manual review warnings above the table.
+   Select a contig and click **Open Contig** to jump to its first flagged site,
+   if it has one. Save or export using the normal File menu. If the API call
+   fails, the local contigs and quality results are still available.
 
 **Offline preview** is a provider option that runs real local assembly and shows
 a built-in report without calling an API. It uses the same dialogs as an online run.
@@ -40,8 +41,9 @@ chromatogram images, sample labels, filenames, paths, or assembly error text are
 sent. Only the provider, model and language are saved in app settings. A key
 typed in the dialog lasts until the app closes; alternatively launch with
 `OPENAI_API_KEY`, `ANTHROPIC_API_KEY` or `GEMINI_API_KEY` set in the environment. OpenAI calls use
-`store: false`. The report helps prioritize review; it cannot resolve individual
-base calls or mark them as reviewed.
+`store: false`. The model suggests which flagged contigs to check first. The app
+formats the report from its own counts and flags, and a report with no warnings
+does not certify sequence accuracy.
 
 ## Command line
 

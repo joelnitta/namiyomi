@@ -7,7 +7,8 @@ from tkinter import messagebox, ttk
 
 from auto_assembly import assemble_groups, unassembled_groups
 from llm_review import (GEMINI, KEY_ENV, LANGUAGES, MODELS, OFFLINE, PROVIDERS, ReviewError,
-                        ReviewPreferences, ReviewSettings, generate_report, list_models, test_connection)
+                        ReviewPreferences, ReviewSettings, format_report, list_models, ordered_contigs,
+                        prioritize_contigs, test_connection)
 from mcp_server import quality_snapshot, read_quality
 
 TITLE = 'Full auto mode by LLM'
@@ -16,8 +17,8 @@ TITLE = 'Full auto mode by LLM'
 def assemble_snapshot(project, groups):
     """Operate on a private project; only new contigs can be applied to the editor."""
     made, errors = assemble_groups(project, groups)
-    summary, keys = quality_snapshot(project, made, len(errors))
-    return {key: project.contigs[key] for key in made}, errors, read_quality(summary), keys
+    summary, rows = quality_snapshot(project, made, len(errors))
+    return {key: project.contigs[key] for key in made}, errors, read_quality(summary), rows
 
 
 class McpDialogs:
@@ -269,7 +270,7 @@ class McpDialogs:
                 bar.stop()
                 progress.set('The project changed. No assembly result was applied.')
                 return
-            contigs, errors, summary, keys = result
+            contigs, errors, summary, rows = result
             if contigs:
                 entry = app.history_entry()
                 project.contigs.update(contigs)
@@ -282,31 +283,29 @@ class McpDialogs:
                 window.focus_set()
             result_revision = app.revision
             app.status.set(f'Full auto: {len(contigs)} built | {len(errors)} groups failed')
-            if config.provider == OFFLINE:
-                self._results(window, body, project, result_revision, config, summary, keys, errors,
-                              generate_report(config, summary), None)
+            if config.provider == OFFLINE or not summary['contigs_total']:
+                self._results(window, body, project, result_revision, config, summary, rows, errors, (), None)
                 return
-            progress.set(f'Requesting the quality report from {config.provider}…')
-            self._background(window, lambda: generate_report(config, summary),
-                             lambda text, failure: self._results(window, body, project, result_revision,
-                                                                 config, summary, keys, errors, text, failure))
+            progress.set(f'Checking review priorities with {config.provider}…')
+            self._background(window, lambda: prioritize_contigs(config, summary),
+                             lambda priority, failure: self._results(window, body, project, result_revision,
+                                                                      config, summary, rows, errors,
+                                                                      priority or (), failure))
 
         self._background(window, lambda: assemble_snapshot(snapshot, groups), assembled)
 
-    def _results(self, window, body, project, revision, config, summary, keys, errors, report, failure):
+    def _results(self, window, body, project, revision, config, summary, rows, errors, priority, failure):
         app = self.editor
         for widget in body.winfo_children():
             widget.destroy()
         window.title('Full auto analysis · Results')
         self._label(body, 'Analysis results', strong=True).pack(anchor='w')
-        self._label(body, f'{summary["new_contigs"]} built  ·  {summary["failed_groups"]} groups failed  ·  '
-                    f'{summary["review_flags"]} review flags  ·  {summary["unassembled_reads"]} unassembled reads',
-                    width=650).pack(anchor='w', pady=(5, 8))
-        self._label(body, f'{summary["clean"]} no flags  ·  {summary["needs_review"]} need review  ·  '
-                    f'{summary["single_read"]} single read', width=650).pack(anchor='w', pady=(0, 8))
+        report = format_report(config, summary, priority, failure=bool(failure))
+        self._label(body, report, width=545).pack(anchor='w', pady=(8, 14))
         table_frame = ttk.Frame(body)
-        table_frame.pack(fill='x')
-        table = ttk.Treeview(table_frame, show='headings', height=5, selectmode='browse',
+        if rows:
+            table_frame.pack(fill='x')
+        table = ttk.Treeview(table_frame, show='headings', height=min(6, max(2, len(rows))), selectmode='browse',
                              columns=('id', 'name', 'category', 'length', 'flags'))
         for col, name, width in (('id', 'ID', 55), ('name', 'Contig', 205), ('category', 'Status', 132),
                                  ('length', 'Length (bp)', 88), ('flags', 'Flags', 54)):
@@ -316,28 +315,15 @@ class McpDialogs:
         table.configure(yscrollcommand=scroll.set)
         scroll.pack(side='right', fill='y')
         table.pack(side='left', fill='x', expand=True)
-        for row in summary['contigs']:
+        keys = {}
+        for row in ordered_contigs(rows, priority):
             ident = row['id']
+            keys[ident] = row['key']
             label = {'clean': 'No flags', 'needs_review': 'Needs review', 'single_read': 'Single read'}[row['category']]
-            table.insert('', 'end', iid=ident, values=(ident, keys[ident][1],
+            table.insert('', 'end', iid=ident, values=(ident, row['name'],
                          'Stale' if row['stale'] else label, row['length_bp'], row['review_flags']))
-        if summary['omitted_contigs']:
-            self._label(body, f'{summary["omitted_contigs"]} more contigs are in the project sidebar.').pack(anchor='w', pady=4)
-        title = 'Offline preview · no API request' if config.provider == OFFLINE else f'{config.provider} · {config.model}'
-        self._label(body, title, strong=True).pack(anchor='w', pady=(12, 5))
-        report_frame = ttk.Frame(body)
-        report_frame.pack(fill='x')
-        text = tk.Text(report_frame, height=9, width=65, wrap='word', font='TkDefaultFont', padx=8, pady=6)
-        report_scroll = ttk.Scrollbar(report_frame, orient='vertical', command=text.yview)
-        text.configure(yscrollcommand=report_scroll.set)
-        report_scroll.pack(side='right', fill='y')
-        text.pack(side='left', fill='x', expand=True)
-        if failure:
-            report = f'LLM report unavailable: {failure}\n\nLocal assembly and quality results are available above.'
-        if errors:
-            report += '\n\nGroups not assembled (local details):\n' + '\n'.join(errors)
-        text.insert('1.0', report)
-        text.configure(state='disabled')
+        if config.provider == OFFLINE:
+            self._label(body, 'Offline preview · no API request').pack(anchor='w', pady=(8, 0))
         buttons = ttk.Frame(body)
         buttons.pack(fill='x', pady=(10, 0))
 
@@ -347,13 +333,30 @@ class McpDialogs:
             if app.project is not project or app.revision != revision:
                 messagebox.showinfo(TITLE, 'The project changed after this report was created.', parent=window)
                 return
-            key = keys[table.selection()[0]][0]
+            key = keys[table.selection()[0]]
             window.destroy()
             app.show_contig(key)
+            flags = project.contigs[key].issues()
+            if flags:
+                app.selection = app.anchor = flags[0]
+                app.ensure_visible()
+                app.update_status()
+
+        def details():
+            sections = [failure] if failure else []
+            if errors:
+                groups = '\n'.join(errors[:12])
+                if len(errors) > 12:
+                    groups += f'\n… {len(errors) - 12} more'
+                sections.append('Groups not assembled:\n' + groups)
+            messagebox.showinfo('Analysis details', '\n\n'.join(sections), parent=window)
 
         ttk.Button(buttons, text='Copy Report', command=lambda: app.put_clipboard(report, 'Copied quality report.')).pack(side='left')
+        if failure or errors:
+            ttk.Button(buttons, text='Details…', command=details).pack(side='left', padx=6)
         view = ttk.Button(buttons, text='Open Contig', command=inspect, state='disabled')
-        view.pack(side='left', padx=6)
+        if rows:
+            view.pack(side='left', padx=6)
         table.bind('<<TreeviewSelect>>', lambda _: view.configure(state='normal' if table.selection() else 'disabled'))
         table.bind('<Double-1>', inspect)
         table.bind('<Return>', inspect)

@@ -236,36 +236,104 @@ def test_connection(settings):
     return _generate(settings, 'This is a connection test. Reply with the single word OK.', 'Connection test.')
 
 
-def generate_report(settings, summary):
-    if settings.provider == OFFLINE:
-        return preview_report(summary, settings.language)
-    return _generate(settings,
-        f'Write a short plain-text Sanger quality review in {settings.language}. Use the numbers in the '
-        'MCP quality summary. Explain what to inspect first using the listed contig IDs. Account for '
-        'failed assemblies, stale contigs, flagged calls, unassembled reads and single-read contigs if '
-        'present. Clean means no current review flags; it does not prove sequence accuracy. If contig '
-        'rows were omitted, qualify the ranking. You do not have chromatograms or sequences. Do not '
-        'infer individual bases, sample identity, function, or causes of discrepancies. Keep existing '
-        'flags open for the user. Keep the report under 220 words, with short paragraphs and no tables.',
+MAX_REPORT_IDS = 5
+
+
+def prioritize_contigs(settings, summary):
+    """Ask the model only for review order. The app owns all facts and wording."""
+    if settings.provider == OFFLINE or not summary['contigs_total']:
+        return ()
+    flagged = {row['id'] for row in summary['contigs'] if row['review_flags']}
+    count = min(MAX_REPORT_IDS, len(flagged))
+    response = _generate(settings,
+        'Prioritize Sanger contigs for human review using only the provided quality metrics. '
+        f'Return exactly one JSON object with the single key "priority_ids" and an array of {count} '
+        'distinct contig IDs, highest priority first. Choose only IDs with review_flags above zero. '
+        'Give preference to stale contigs, more flags and weak support. Do not include any prose, '
+        'counts, base calls, or claims about accuracy.',
         json.dumps(summary, allow_nan=False))
+    fenced = re.fullmatch(r'```(?:json)?\s*(.*?)\s*```', response, flags=re.IGNORECASE | re.DOTALL)
+    try:
+        value = json.loads(fenced[1] if fenced else response)
+    except (ValueError, RecursionError):
+        value = None
+    ids = value.get('priority_ids') if isinstance(value, dict) and set(value) == {'priority_ids'} else None
+    if (not isinstance(ids, list) or len(ids) != count
+            or any(not isinstance(item, str) or item not in flagged for item in ids)
+            or len(set(ids)) != count):
+        raise ReviewError('The model did not return a valid review order.')
+    return tuple(ids)
 
 
-def preview_report(summary, language):
-    pending = [r['id'] for r in summary['contigs'] if r['category'] != 'clean']
-    targets = ', '.join(pending[:8])
-    failed = summary['failed_groups']
-    if language == 'Japanese':
-        return '\n\n'.join((
-            f'コンティグ {summary["contigs_total"]} 件のうち、要確認 {summary["needs_review"]} 件、'
-            f'単一リード {summary["single_read"]} 件、フラグなし {summary["clean"]} 件。',
-            f'確認候補: {targets}。対応するクロマトグラムを開いてフラグを確認してください。'
-            if targets else '表示範囲に優先確認の候補はありません。',
-            f'組み立て失敗: {failed} グループ。未組み立てリード: {summary["unassembled_reads"]} 件。',
-        ))
-    return '\n\n'.join((
-        f'{summary["contigs_total"]} contigs: {summary["needs_review"]} need review, '
-        f'{summary["single_read"]} use a single read, and {summary["clean"]} have no current flags.',
-        f'Inspect {targets} first. Open the corresponding chromatograms and check the flagged positions.'
-        if targets else 'No contigs in the displayed list are flagged for priority review.',
-        f'{failed} groups failed to assemble. {summary["unassembled_reads"]} reads remain unassembled.',
-    ))
+def ordered_contigs(rows, priority):
+    rank = {identifier: index for index, identifier in enumerate(priority)}
+    return sorted(rows, key=lambda row: rank.get(row['id'], len(rank)))
+
+
+def format_report(settings, summary, priority=(), *, failure=False):
+    """Format measured counts and existing flags, including when the API fails."""
+    reads, used, built = (summary[k] for k in ('reads', 'reads_used', 'new_contigs'))
+    total, unused, single, failed = (summary[k] for k in
+        ('contigs_total', 'unassembled_reads', 'single_read_contigs', 'failed_groups'))
+    flags, flagged, stale = (summary[k] for k in ('review_flags', 'flagged_contigs', 'stale_contigs'))
+    targets = [r['id'] for r in ordered_contigs(summary['contigs'], priority)
+               if r['review_flags']][:MAX_REPORT_IDS]
+    more = flagged - len(targets)
+    online = settings.provider != OFFLINE and not failure
+
+    if settings.language == 'Japanese':
+        if built:
+            assembly = f'受け取った{reads}本のリードのうち{used}本を使い、{built}件のコンティグを作成しました。'
+        elif total:
+            assembly = f'読み込み済みの{reads}本を対象にしました。新規作成はなく、既存の{total}件を確認しました。'
+        else:
+            assembly = f'{reads}本のリードを受け取りましたが、コンティグを作成できませんでした。'
+        notes = []
+        if unused:
+            notes.append(f'未組み立てリード{unused}本')
+        if single:
+            notes.append(f'単一リードのコンティグ{single}件')
+        if failed:
+            notes.append(f'組み立て失敗{failed}グループ')
+        assembly += '、'.join(notes) + 'がありました。' if notes else '未組み立てリードや単一リードのコンティグはありませんでした。'
+        if not total:
+            return assembly
+        lead = f'[{settings.model}] で品質指標を確認しました。' if online else ''
+        if flags:
+            ids = '、'.join(targets) + (f'（ほか{more}件）' if more else '')
+            review = f'コンティグ {ids} の計{flags}か所を手動で確認してください。［Open Contig］でクロマトグラムを表示できます。'
+        else:
+            review = '塩基のレビューフラグはありません。' if stale or single or unused or failed else '手動確認が必要な警告はありません。'
+        if stale:
+            review += f'再組み立てが必要なコンティグが{stale}件あります。'
+        fallback = '\nAIレビューを取得できなかったため、端末内の結果を表示しています。' if failure else ''
+    else:
+        def amount(number, noun):
+            return f'{number} {noun}' + ('' if number == 1 else 's')
+
+        if built:
+            assembly = f'Used {used} of {amount(reads, "read")} to build {amount(built, "contig")}.'
+        elif total:
+            assembly = f'Checked {amount(total, "existing contig")} from {amount(reads, "loaded read")}. No new contigs were built.'
+        else:
+            assembly = f'Received {amount(reads, "read")} but could not build any contigs.'
+        notes = []
+        if unused:
+            notes.append(amount(unused, 'unassembled read'))
+        if single:
+            notes.append(amount(single, 'single-read contig'))
+        if failed:
+            notes.append(amount(failed, 'failed group'))
+        assembly += ' ' + ('Found ' + ', '.join(notes) + '.' if notes else 'No unassembled reads or single-read contigs.')
+        if not total:
+            return assembly
+        lead = f'[{settings.model}] reviewed the quality metrics. ' if online else ''
+        if flags:
+            ids = ', '.join(targets) + (f' (+{more} more)' if more else '')
+            review = f'Manually check {amount(flags, "flagged site")} in {ids}. Choose Open Contig to view the chromatogram.'
+        else:
+            review = 'No base review flags.' if stale or single or unused or failed else 'No warnings require manual review.'
+        if stale:
+            review += f' Rebuild required for {amount(stale, "contig")}.'
+        fallback = '\nAI review unavailable. Showing local results.' if failure else ''
+    return assembly + '\n\n' + lead + review + fallback
