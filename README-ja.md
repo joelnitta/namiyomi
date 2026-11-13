@@ -72,9 +72,9 @@ AUTOは、各接頭辞が「同一個体の同一領域」を表す場合だけ�
 2. 残った確認対象をAIにも見せる場合は、**AI Review > Settings** で **OpenAI、Claude、Gemini** のいずれかを選び、モデル、推論レベル、APIキーを設定します。送るのは、前後の塩基、Phred値、波形の4色の信号を切り出した数値です。AB1ファイル、波形画像、試料名、ファイル名、配列上の絶対位置は端末に残ります。
 3. AIは塩基の候補、余分なコールの削除、または保留を返します。確信度が高く、実際の波形も支持するときに反映します。リード1本だけを根拠にコールは削除しません。手動で編集・確認済みの箇所や、二重ピークとして記録したIUPACコードは自動で上書きしません。
 
-![AI Reviewの設定画面。This device onlyではAPIキーなしで実行できます。](docs/images/namiyomi-ai-settings-macos.png)
+![AI Reviewの設定画面。This device onlyではAPIキーなしで実行できます。](docs/images/namiyomi-ai-settings-macos.jpg)
 
-![合成デモのAI Review Report。コンティグ名と要確認フラッグ数が表示されています。](docs/images/namiyomi-ai-report-macos.png)
+![合成デモのAI Review Report。コンティグ名と要確認フラッグ数が表示されています。](docs/images/namiyomi-ai-report-macos.jpg)
 
 レポートのコンティグ名をクリックすると、確認箇所の波形が開きます。同じ行をクリックするたびに赤フラッグを順に移動します。赤はAIに確認しても未解決の箇所です。黒は未確認の箇所と、修正後に残るAUTOの履歴を示します。修正箇所には青緑の下線が付きます。**Edit > Undo** で組み立てと判定を一緒に取り消せます。[波形ルールと検証の範囲（英語）](docs/TRACE_REVIEW.md)
 
@@ -82,7 +82,7 @@ AUTOは、各接頭辞が「同一個体の同一領域」を表す場合だけ�
 
 MCPは任意です。namiyomiの **Review Start** はMCPを設定せずに使えます。MCPを使う場合は、対応クライアントに `src/mcp_server.py` と `--project 保存済みプロジェクトのパス` を設定します。接続後は「要確認フラッグが残っているコンティグはいくつ？」と尋ねると、`get_quality_summary` で匿名の集計値を取得できます。MCPから配列の編集や出力はできません。保存内容を集計に反映するには、サーバーを再起動します。集計値を外部のモデルに渡すかどうかはクライアントの設定によります。
 
-![合成デモを対象にMCPのget_quality_summaryを呼び出し、匿名の件数を受け取った画面。](docs/images/namiyomi-mcp-summary.png)
+![合成デモを対象にMCPのget_quality_summaryを呼び出し、匿名の件数を受け取った画面。](docs/images/namiyomi-mcp-summary.jpg)
 
 [一括処理・MCP設定ガイド（英語）](docs/BATCH.md)に接続設定例と、AB1の一括組み立て・レビュー・FASTA出力の手順があります。
 

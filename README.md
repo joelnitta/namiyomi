@@ -72,9 +72,9 @@ Use AUTO only when each prefix identifies one specimen **and one locus**. Reads 
 2. To review the remaining eligible flags with AI, choose **OpenAI**, **Claude**, or **Gemini** in **AI Review > Settings**. Choose the model and reasoning effort, then configure your provider API key. The model receives nearby base calls, Phred scores, and a short sample of the four signal channels. AB1 files, waveform images, sample names, filenames, and absolute positions stay on your device.
 3. The model can propose a base, propose removing the call, or leave it unresolved. namiyomi applies a confident answer only when the trace supports it. A single read cannot justify deleting a call. Explicitly reviewed or edited sites and flagged IUPAC double peaks stay available for manual review as appropriate.
 
-![The AI Review settings dialog with This device only selected and no API key.](docs/images/namiyomi-ai-settings-macos.png)
+![The AI Review settings dialog with This device only selected and no API key.](docs/images/namiyomi-ai-settings-macos.jpg)
 
-![The AI Review Report for synthetic reads, showing contig names and remaining flag counts.](docs/images/namiyomi-ai-report-macos.png)
+![The AI Review Report for synthetic reads, showing contig names and remaining flag counts.](docs/images/namiyomi-ai-report-macos.jpg)
 
 Click a contig in the report to open its flagged waveform. Click again to cycle through its red flags. A red flag means the online model reviewed the site and left it unresolved. A black flag can mark an open site or preserve the original AUTO flag after a correction. A teal underline marks a correction. **Edit > Undo** reverses the assembly and review together. [Trace rules, examples, and benchmark limits](docs/TRACE_REVIEW.md)
 
@@ -82,7 +82,7 @@ Click a contig in the report to open its flagged waveform. Click again to cycle 
 
 MCP is optional. **Review Start** works entirely from the namiyomi menu. If you use an external MCP client, configure it to launch `src/mcp_server.py` with `--project` and the path to one saved project. Then ask the client for `get_quality_summary`, for example: “How many contigs still have review flags?” The tool returns anonymous counts, not the project or its waveforms, and cannot edit or export a sequence. Restart the server after saving to refresh the summary. The client determines what it forwards to its own model.
 
-![A local MCP request calling get_quality_summary and its response, showing anonymous counts from the synthetic demo.](docs/images/namiyomi-mcp-summary.png)
+![A local MCP request calling get_quality_summary and its response, showing anonymous counts from the synthetic demo.](docs/images/namiyomi-mcp-summary.jpg)
 
 The [batch and MCP guide](docs/BATCH.md) includes the MCP configuration and the optional batch command for assembly, review, and FASTA export.
 
