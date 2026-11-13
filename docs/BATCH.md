@@ -143,4 +143,41 @@ an external host.
 
 ![A local MCP client calls get_quality_summary and receives anonymous counts for the synthetic demo.](images/namiyomi-mcp-summary.jpg)
 
+## Optional: let an MCP client review the traces and trim ends
+
+`src/mcp_server.py` above is deliberately narrow. For an MCP client such as Claude Desktop or Claude Code
+that should do the review itself, there is a second, opt-in server, `src/mcp_review_server.py`. It is the
+counterpart of the in-app AI review: the in-app review sends flagged columns to a model with your API key,
+while this server lets a client you already use look at the traces and submit decisions.
+
+```sh
+pip install -r requirements/mcp.txt
+```
+
+```json
+{
+  "mcpServers": {
+    "namiyomi-review": {
+      "command": "/path/to/.venv/bin/python",
+      "args": ["/path/to/namiyomi/src/mcp_review_server.py"]
+    }
+  }
+}
+```
+
+Tools: `scan_folder`, `run_batch`, `list_contigs`, `get_contig_details`, `get_column_qualities`,
+`find_sequence`, `render_trace`, `describe_contig_ends`, `suggest_quality_trim`, `apply_review_edits`,
+`export_fasta`, and a `trim_contig_ends` prompt.
+
+- **Same pipeline.** `run_batch` first settles the flags the local trace rules can decide, as the in-app
+  review does, and leaves the rest to the client. No online model is called by the server.
+- **Same results.** `apply_review_edits` writes its decisions into the same per-column review store the app
+  uses, with the client's reason as the note. They appear in the app like in-app results, and a flag the
+  client leaves open shows as a red unresolved flag. A column you edited by hand is never overwritten.
+  End trims are applied like deleting consensus bases by hand.
+- **Never in place.** Edits go to a new `*.reviewed.json` with a `review_report.md` beside it, and
+  `export_fasta` writes `<marker>.reviewed.fasta` so the batch run's FASTA stays untouched.
+- **Privacy.** Unlike `get_quality_summary`, these tools return sequences, read file names and trace
+  images to the connected client, so register it only with a client you trust with the data.
+
 The batch and triage work is based on Joel Nitta's [PR #2](https://github.com/yoneoka-katsuhiro/namiyomi/pull/2).
