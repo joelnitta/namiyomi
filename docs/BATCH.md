@@ -143,7 +143,7 @@ an external host.
 
 ![A local MCP client calls get_quality_summary and receives anonymous counts for the synthetic demo.](images/namiyomi-mcp-summary.jpg)
 
-## Optional: let an MCP client review the traces and trim ends
+## Review and trim from an MCP client
 
 `src/mcp_server.py` above is deliberately narrow. For an MCP client such as Claude Desktop or Claude Code
 that should do the review itself, there is a second, opt-in server, `src/mcp_review_server.py`. It is the
