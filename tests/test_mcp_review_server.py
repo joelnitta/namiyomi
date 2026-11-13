@@ -44,10 +44,12 @@ class McpToolTests(unittest.TestCase):
         self.assertEqual(mcp_review_server.scan_folder(str(self.demo))['ab1_files'], 4)
         summary = mcp_review_server.run_batch(str(self.demo), str(self.out))
         self.assertEqual(summary['review_mode'], 'human')
-        self.assertIn('do NOT edit', summary['next_steps'])
+        self.assertIn('do not edit anything unless', summary['next_steps'])
         self.assertFalse((self.out / 'project.reviewed.json').exists())
         with self.assertRaises(ValueError):
             mcp_review_server.run_batch(str(self.demo), str(self.out), review='robot')
+        with self.assertRaisesRegex(ValueError, 'already exists'):   # names the folder, suggests another
+            mcp_review_server.run_batch(str(self.demo), str(self.out))
 
     def test_claude_review_flow(self):
         summary = mcp_review_server.run_batch(str(self.demo), str(self.out), review='claude')

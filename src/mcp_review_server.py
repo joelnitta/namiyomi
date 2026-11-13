@@ -15,7 +15,8 @@ import review
 
 mcp = FastMCP('namiyomi')
 
-HUMAN_NEXT = ('Review mode is "human": do NOT edit anything. Report the triage to the user and give them '
+HUMAN_NEXT = ('Review mode is "human": by default do not edit anything unless the user explicitly asks you to '
+              'review or clean the reads. Report the triage to the user and give them '
               'the project path to open in namiyomi (File > Import Previous Project), listing the needs_review, '
               'single_read and failed contigs for them to check against the traces.')
 CLAUDE_NEXT = ('Review mode is "claude": for each needs_review contig call get_contig_details, then render_trace '
@@ -60,7 +61,11 @@ def run_batch(input_dir: str, output_dir: str, sheet: str | None = None, allow_s
         raise ValueError('review must be "human" or "claude".')
     settings = {k: v for k, v in (('min_quality', min_quality), ('min_overlap', min_overlap),
                                   ('min_identity', min_identity)) if v is not None}
-    summary = batch.run_batch(_path(input_dir), _path(output_dir), sheet=_path(sheet) if sheet else None,
+    out = _path(output_dir)
+    if out.is_symlink() or out.exists():
+        raise ValueError(f'{out} already exists. Choose a folder that does not exist yet (for example '
+                         f'{out / "run1"}); existing results are never overwritten.')
+    summary = batch.run_batch(_path(input_dir), out, sheet=_path(sheet) if sheet else None,
                               settings=settings, allow_single=allow_single,
                               review=local_rules)
     summary['review_mode'] = review
@@ -76,7 +81,7 @@ def list_contigs(project_path: str, filter: str | None = None) -> list[dict]:
 
 @mcp.tool()
 def get_contig_details(project_path: str, contig: str) -> dict:
-    """Flagged columns of one contig (0-based alignment columns), with each source read's base call, Phred
+    """Flagged columns of one contig (alignment columns, numbered from 1 like the app), with each source read's base call, Phred
     and peak_heights (raw A/C/G/T channel heights at that read's peak, already complemented for
     reverse reads so they match the contig orientation). None means the read does not cover the column.
     """
@@ -86,7 +91,7 @@ def get_contig_details(project_path: str, contig: str) -> dict:
 @mcp.tool()
 def get_column_qualities(project_path: str, contig: str, start: int | None = None,
                          end: int | None = None) -> dict:
-    """Every alignment column in start..end (0-based, inclusive; default: whole contig) with the consensus
+    """Every alignment column in start..end (numbered from 1, inclusive; default: whole contig) with the consensus
     call and each read's [base, Phred]. Use it to pick a trim point when the user asks for quality-based
     end trimming (e.g. a rolling mean of Phred falling below a threshold).
     """
@@ -137,9 +142,13 @@ def trim_contig_ends(project_path: str, rule: str = '') -> str:
    changes anything, but say how many there were.
 2. If I gave a rule, translate it into suggest_quality_trim arguments and say exactly how you read it
    (e.g. which ends, how isolated Ns are handled). If my rule cannot be expressed with those arguments,
-   say so instead of approximating it silently. If I gave no rule, recommend one from the comparison
-   and explain the trade-off (bases kept versus Ns kept). Batch reads were already Mott-trimmed, so a
-   rolling-mean rule often changes little; say so if that is the case.
+   say so instead of approximating it silently. If I gave no rule, start conservative: recommend
+   overlap-only (keeping just the region two reads cover) when it exists, but also lay out the
+   alternatives from the comparison (rolling-mean Phred with a stricter threshold or longer window,
+   cutting at runs of Ns, keeping everything) and explain the trade-off (bases kept versus Ns kept), so
+   I can ask for a follow-up run. A rolling-mean rule scores each column by its best covering read and
+   ignores isolated Ns, so on single-read tails with low Phred (below about 20) the default settings can
+   change nothing; if the comparison shows that, say so and show a stricter variant.
 3. Run suggest_quality_trim with the agreed arguments and show the proposed cuts. Do not apply anything
    until I confirm.
 4. After I confirm, call apply_review_edits with the non-null edit values, writing project.reviewed.json
@@ -174,8 +183,9 @@ def apply_review_edits(project_path: str, output_path: str, edits: list[dict],
     """Apply review verdicts to a NEW copy of the project (the input is never overwritten).
 
     Each edit: {"contig": name, "column": int, "action": "set" or "confirm", "value": "A" (for set),
-    "reason": "why, citing the peaks"}. "set" changes the consensus call; "confirm" marks the flag
-    reviewed without changing it. To trim a contig's ends: {"contig": name, "action": "trim",
+    "reason": "why, citing the peaks"}. Columns are numbered from 1, as in the app and review.tsv. "set"
+    records a decision for the column (A, C, G, T, or "-" to remove it); "confirm" marks the flag reviewed
+    without changing it. To trim a contig's ends: {"contig": name, "action": "trim",
     "keep_from": int, "keep_to": int, "reason": "the rule used"}; columns outside the range are deleted
     from the consensus. Trim only when the user asked for it, using their rule (suggest_quality_trim
     gives ready edits for rolling-mean Phred rules). Every edit is logged with its reason in review_report.md next to

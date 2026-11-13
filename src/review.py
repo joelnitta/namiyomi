@@ -18,6 +18,20 @@ from core import COMPLEMENT, Project, atomic_text, base_text, export_markers
 from sequence_find import consensus_coordinates, find_matches
 from trace_plot import trace_samples
 
+# Alignment columns are numbered from 1 everywhere in the tools, reports and tool arguments, the
+# same as the app's column ruler and review.tsv. Internally they stay 0-based.
+def _one(column):
+    return None if column is None else column + 1
+
+
+def _zero(value, what='column'):
+    try:
+        column = int(value)
+    except (TypeError, ValueError):
+        raise ValueError(f'{what} must be a whole number (columns are numbered from 1).') from None
+    return column - 1
+
+
 BASE_COLORS = {'A': '#008234', 'C': '#1559c5', 'G': '#161616', 'T': '#d1272c'}
 
 
@@ -44,7 +58,7 @@ def list_contigs(project, category=None):
 
 
 def contig_details(project, ref):
-    """Flagged columns (0-based alignment columns) with every source read's call and Phred."""
+    """Flagged columns (alignment columns, numbered from 1 like the app) with every source read's call and Phred."""
     key, contig = resolve_contig(project, ref)
     row = next(r for r in triage(project) if r['key'] == key)
     sources = []
@@ -62,7 +76,7 @@ def contig_details(project, ref):
                               raw_position=None if b is None or b.raw is None else b.raw + 1,
                               peak_heights=_peak_heights(project.traces[source.read_id], b, source.reverse)))
         column = contig.columns[col]
-        flagged.append(dict(column=col, consensus=contig.call(col), automatic_call=column.call,
+        flagged.append(dict(column=_one(col), consensus=contig.call(col), automatic_call=column.call,
                             reason=column.reason, manual_override=str(col) in contig.overrides, reads=reads))
     return dict(name=contig.sequence_name, key=key, category=row['category'], status=contig.status,
                 overlap=contig.overlap, identity=row['identity'], columns=len(contig.columns),
@@ -70,20 +84,20 @@ def contig_details(project, ref):
 
 
 def column_qualities(project, ref, start=None, end=None):
-    """Every alignment column in [start, end] (0-based, inclusive): consensus call and each read's base and Phred.
+    """Every alignment column in [start, end] (numbered from 1, inclusive): consensus call and each read's base and Phred.
 
     Use it to choose a trim point, e.g. where a rolling mean of the Phred scores falls below a threshold.
     """
     _, contig = resolve_contig(project, ref)
     total = len(contig.columns)
-    start = 0 if start is None else int(start)
-    end = total - 1 if end is None else int(end)
+    start = 0 if start is None else _zero(start, 'start')
+    end = total - 1 if end is None else _zero(end, 'end')
     if not 0 <= start <= end < total:
-        raise ValueError(f'Need 0 <= start <= end <= {total - 1}.')
+        raise ValueError(f'Need 1 <= start <= end <= {total}.')
     rows = []
     for col in range(start, end + 1):
         reads = [None if b is None else [b.base, b.quality] for b in (s.mapping[col] for s in contig.sources)]
-        rows.append(dict(column=col, consensus=contig.call(col), reads=reads))
+        rows.append(dict(column=_one(col), consensus=contig.call(col), reads=reads))
     return dict(name=contig.sequence_name, columns=total, min_quality=project.settings['min_quality'],
                 sources=[Path(project.reads[s.read_id].path).name for s in contig.sources],
                 note='reads: [base, phred] per source in that order, null if the read does not cover the column',
@@ -168,7 +182,7 @@ class _Ends:
 
     def outcome(self, keep_from, keep_to):
         kept = self.bases(range(keep_from, keep_to + 1))
-        return dict(keep_from=keep_from, keep_to=keep_to, length=len(kept), n_count=kept.count('N'),
+        return dict(keep_from=_one(keep_from), keep_to=_one(keep_to), length=len(kept), n_count=kept.count('N'),
                     removed_left=len(self.bases(range(keep_from))),
                     removed_right=len(self.bases(range(keep_to + 1, self.n))))
 
@@ -183,9 +197,9 @@ class _Ends:
                 continue
             run = run + 1 if self.calls[i] == 'N' else 0
             longest = max(longest, run)
-        return dict(columns=[cols[0], cols[-1]] if cols else None, bases=len(bases),
+        return dict(columns=[_one(cols[0]), _one(cols[-1])] if cols else None, bases=len(bases),
                     mean_phred=round(sum(quals) / len(quals), 1) if quals else None,
-                    n_count=len(n_cols), longest_n_run=longest, n_columns=n_cols)
+                    n_count=len(n_cols), longest_n_run=longest, n_columns=[_one(i) for i in n_cols])
 
 
 def _check_rule(window, min_mean_phred, max_n_run):
@@ -245,10 +259,10 @@ def suggest_quality_trim(project, ref=None, window=10, min_mean_phred=20, single
             continue
         edit = None
         if (keep_from, keep_to) != (0, ends.n - 1):
-            edit = dict(contig=contig.sequence_name, action='trim', keep_from=keep_from, keep_to=keep_to,
+            edit = dict(contig=contig.sequence_name, action='trim', keep_from=_one(keep_from), keep_to=_one(keep_to),
                         reason=rule[0].upper() + rule[1:])
         result = dict(name=contig.sequence_name, columns=ends.n,
-                      overlap=list(ends.overlap) if ends.overlap else None, **ends.outcome(keep_from, keep_to))
+                      overlap=[_one(c) for c in ends.overlap] if ends.overlap else None, **ends.outcome(keep_from, keep_to))
         result['isolated_n_kept'] = sum(1 for i in range(keep_from, keep_to + 1)
                                         if ends.calls[i] == 'N' and ends.scores[i] is None) if keep_isolated_n else 0
         result['edit'] = edit
@@ -288,7 +302,7 @@ def describe_contig_ends(project, ref=None, options=None):
             cols = [i for i, b in enumerate(source.mapping) if b is not None]
             kept = [q for q in trace.qualities[read.start:read.end] if q is not None]
             reads.append(dict(file=Path(read.path).name, reverse_complemented=source.reverse,
-                              columns=[cols[0], cols[-1]] if cols else None, raw_length=len(trace.sequence),
+                              columns=[_one(cols[0]), _one(cols[-1])] if cols else None, raw_length=len(trace.sequence),
                               trimmed_length=read.end - read.start,
                               median_phred=sorted(kept)[len(kept) // 2] if kept else None))
         if ends.overlap:
@@ -313,7 +327,7 @@ def describe_contig_ends(project, ref=None, options=None):
             except (TypeError, ValueError) as exc:
                 compared.append(dict(label=label, error=str(exc)))
         results.append(dict(name=contig.sequence_name, category=rows[key]['category'], columns=ends.n,
-                            overlap=list(ends.overlap) if ends.overlap else None, reads=reads,
+                            overlap=[_one(c) for c in ends.overlap] if ends.overlap else None, reads=reads,
                             left_end=ends.tail(left) if ends.overlap else None,
                             right_end=ends.tail(right) if ends.overlap else None,
                             n_total=ends.calls.count('N'), options=compared))
@@ -329,20 +343,22 @@ def _peak_heights(trace, base, reverse):
 
 
 def find_sequence(project, ref, query, identity=100):
+    """Matches in the exported consensus: start..end are positions from 1, inclusive; *_column are alignment columns."""
     _, contig = resolve_contig(project, ref)
     sequence, columns = consensus_coordinates(contig)
-    return [dict(start=m.start, end=m.end, strand=m.strand, identity=m.identity,
-                 first_column=columns[m.start], last_column=columns[m.end - 1])
+    return [dict(start=m.start + 1, end=m.end, strand=m.strand, identity=m.identity,
+                 first_column=_one(columns[m.start]), last_column=_one(columns[m.end - 1]))
             for m in find_matches(sequence, query, identity)]
 
 
 def render_trace(project, ref, column, window=15):
-    """PNG (bytes) of every source read's chromatogram around one alignment column."""
+    """PNG (bytes) of every source read's chromatogram around one alignment column (numbered from 1)."""
     from matplotlib.figure import Figure
     key, contig = resolve_contig(project, ref)
     total = len(contig.columns)
+    column = _zero(column)
     if not 0 <= column < total:
-        raise ValueError(f'Column must be between 0 and {total - 1}.')
+        raise ValueError(f'Column must be between 1 and {total}.')
     window = max(3, min(int(window), 60))
     left, right = max(0, column - window), min(total, column + window + 1)
     fig = Figure(figsize=(10, 2.6 * len(contig.sources)), dpi=100)
@@ -373,7 +389,7 @@ def render_trace(project, ref, column, window=15):
         ax.set_xlim(left - .5, right - .5)
         strand = ' (reverse-complemented)' if source.reverse else ''
         ax.set_title(f'{Path(read.path).name}{strand}', loc='left', fontsize=9)
-    axes[-1].set_xlabel(f"{contig.sequence_name}: alignment column {column} (0-based, highlighted). "
+    axes[-1].set_xlabel(f"{contig.sequence_name}: alignment column {column + 1} (highlighted). "
                         f"Top row = base call, then Phred (red < Q{minq}). Consensus = {contig.call(column)!r}")
     fig.tight_layout()
     buf = io.BytesIO()
@@ -416,6 +432,7 @@ def apply_review_edits(project_path, output_path, edits, report_path=None, revie
             action = edit.get('action', 'set')
             reason = str(edit.get('reason', '')).strip()
             last = len(contig.columns) - 1
+            total = last + 1
             if contig.stale:
                 raise ValueError('Inputs have changed; rebuild the contig first.')
             if action not in ('set', 'confirm', 'trim'):
@@ -423,18 +440,18 @@ def apply_review_edits(project_path, output_path, edits, report_path=None, revie
             if not reason:
                 raise ValueError('A reason is required so the change can be audited.')
             value = None
-            if action != 'trim' and str(int(edit['column'])) in contig.overrides:
+            if action != 'trim' and str(_zero(edit['column'])) in contig.overrides:
                 raise ValueError('That column was edited by hand; leave it alone.')
             if action == 'trim':
-                col = (int(edit['keep_from']), int(edit['keep_to']))
+                col = (_zero(edit['keep_from'], 'keep_from'), _zero(edit['keep_to'], 'keep_to'))
                 if not 0 <= col[0] <= col[1] <= last:
-                    raise ValueError(f'Need 0 <= keep_from <= keep_to <= {last}.')
+                    raise ValueError(f'Need 1 <= keep_from <= keep_to <= {total}.')
                 if col == (0, last):
                     raise ValueError('keep_from..keep_to covers the whole contig; nothing to trim.')
             else:
-                col = int(edit['column'])
+                col = _zero(edit['column'])
                 if not 0 <= col <= last:
-                    raise ValueError(f'Column {col} is outside 0..{last}.')
+                    raise ValueError(f'Column {col + 1} is outside 1..{total}.')
             if action == 'set':
                 value = str(edit.get('value', '')).upper().strip()
                 if value not in ('A', 'C', 'G', 'T', '-'):
@@ -446,9 +463,9 @@ def apply_review_edits(project_path, output_path, edits, report_path=None, revie
     for n, item in enumerate(unresolved, start=1):
         try:
             _, contig = resolve_contig(project, item['contig'])
-            col = int(item['column'])
+            col = _zero(item['column'])
             if not 0 <= col < len(contig.columns):
-                raise ValueError(f'Column {col} is outside 0..{len(contig.columns) - 1}.')
+                raise ValueError(f'Column {col + 1} is outside 1..{len(contig.columns)}.')
             reason = str(item.get('reason', '')).strip()
             if str(col) not in contig.overrides:
                 unresolved_marks.append((contig, col, reason))
@@ -464,9 +481,9 @@ def apply_review_edits(project_path, output_path, edits, report_path=None, revie
             for i in removed:
                 contig.overrides[str(i)] = ''          # same as deleting a consensus base in the GUI
                 contig.black_marks.pop(str(i), None)
-            cut = ([f'0-{keep_from - 1}'] if keep_from else []) + \
-                  ([f'{keep_to + 1}-{len(contig.columns) - 1}'] if keep_to < len(contig.columns) - 1 else [])
-            lines.append(f'- **{contig.sequence_name}**: trimmed to columns {keep_from}-{keep_to} '
+            cut = ([f'1-{keep_from}'] if keep_from else []) + \
+                  ([f'{keep_to + 2}-{len(contig.columns)}'] if keep_to < len(contig.columns) - 1 else [])
+            lines.append(f'- **{contig.sequence_name}**: trimmed to columns {keep_from + 1}-{keep_to + 1} '
                          f'({bases} bases removed from columns {" and ".join(cut)}). {reason}')
             continue
         before = contig.call(col)
@@ -475,11 +492,11 @@ def apply_review_edits(project_path, output_path, edits, report_path=None, revie
             contig.ai_notes[str(col)] = _note(reviewer, reason)
             contig.black_marks.pop(str(col), None)
             shown = 'no base (column removed)' if value == '-' else value
-            lines.append(f'- **{contig.sequence_name}** column {col}: {before} -> **{shown}**. {reason}')
+            lines.append(f'- **{contig.sequence_name}** column {col + 1}: {before} -> **{shown}**. {reason}')
         else:
             contig.black_marks[str(col)] = False    # same as the GUI's "Mark reviewed"
             contig.ai_notes.pop(str(col), None)
-            lines.append(f'- **{contig.sequence_name}** column {col}: confirmed {before}. {reason}')
+            lines.append(f'- **{contig.sequence_name}** column {col + 1}: confirmed {before}. {reason}')
     for contig, col, reason in unresolved_marks:       # shown as a red flag in the app
         if contig.ai_review.get(str(col), 'N') == 'N':
             contig.ai_review[str(col)] = 'N'
@@ -491,7 +508,7 @@ def apply_review_edits(project_path, output_path, edits, report_path=None, revie
     for r in remaining:
         for col in r['issue_columns']:
             note = notes.get((r['name'], col))
-            open_lines.append(f'- **{r["name"]}** column {col}' + (f': {note}' if note else ''))
+            open_lines.append(f'- **{r["name"]}** column {col + 1}' + (f': {note}' if note else ''))
     body = '\n'.join(lines) if lines else '_No edits._'
     body += '\n\n### Left unresolved (check these in the app)\n\n' + ('\n'.join(open_lines) or '_None._')
     report = Path(report_path).expanduser() if report_path else output.with_name('review_report.md')
@@ -501,7 +518,8 @@ def apply_review_edits(project_path, output_path, edits, report_path=None, revie
                 f'Source project: `{source.name}` (unchanged). Reviewed copy: `{output.name}`.\n\n'
                 + body + '\n')
     return dict(output=str(output), report=str(report), applied=len(plan),
-                still_needs_review=[dict(name=r['name'], columns=r['issue_columns']) for r in remaining])
+                still_needs_review=[dict(name=r['name'], columns=[_one(c) for c in r['issue_columns']])
+                                        for r in remaining])
 
 
 def export_fasta(project_path, output_dir, allow_single=False, suffix=None):

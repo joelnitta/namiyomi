@@ -175,8 +175,13 @@ Tools: `scan_folder`, `run_batch`, `list_contigs`, `get_contig_details`, `get_co
   uses, with the client's reason as the note. They appear in the app like in-app results, and a flag the
   client leaves open shows as a red unresolved flag. A column you edited by hand is never overwritten.
   End trims are applied like deleting consensus bases by hand.
+- **Same numbering.** Columns are numbered from 1, as in the app and `review.tsv`.
+- **Conservative start, then follow-ups.** For end trimming the client compares rules, usually starts
+  with the conservative one (keep only the region two reads cover), and then tries stricter or looser
+  rules at your direction. Nothing is trimmed until you agree on a rule.
 - **Never in place.** Edits go to a new `*.reviewed.json` with a `review_report.md` beside it, and
   `export_fasta` writes `<marker>.reviewed.fasta` so the batch run's FASTA stays untouched.
+- **Open the result in the app.** From a source checkout: `python src/app.py --project /path/to/project.reviewed.json`.
 - **Privacy.** Unlike `get_quality_summary`, these tools return sequences, read file names and trace
   images to the connected client, so register it only with a client you trust with the data.
 
