@@ -505,10 +505,16 @@ class Project:
         if added:self.invalidate()
         return added,errors
 
-    def signature(self, ids):
+    def signature(self, ids, *, legacy_paths=False):
+        """Identify assembly inputs by content and settings, independent of folder location."""
         rows=[]
         for rid in sorted(ids):
-            row=asdict(self.reads[rid]);row.pop('black_marks',None);row.pop('name',None);row.pop('reverse',None);rows.append(row)
+            row=asdict(self.reads[rid])
+            for field in ('black_marks', 'name', 'reverse'):
+                row.pop(field, None)
+            if not legacy_paths:
+                del row['path']
+            rows.append(row)
         return hashlib.sha256(json.dumps(dict(reads=rows,
             settings=self.settings),sort_keys=True,ensure_ascii=False).encode()).hexdigest()
 
@@ -763,6 +769,12 @@ class Project:
                 if col.f is not None and not 0<=col.f<len(contig.f_bases):raise ValueError('Invalid forward read position.')
                 if col.r is not None and not 0<=col.r<len(contig.r_bases):raise ValueError('Invalid reverse read position.')
             project.contigs[key]=contig
+        # Old projects included absolute paths in the hash. Upgrade only hashes
+        # that still match, so an outdated assembly is never treated as current.
+        for key, contig in project.contigs.items():
+            ids = contig.read_ids() if contig.sources else project.groups().get(key, [])
+            if ids and contig.signature == project.signature(ids, legacy_paths=True):
+                contig.signature = project.signature(ids)
         project.invalidate();project.path=path;project.dirty=False
         return project
 

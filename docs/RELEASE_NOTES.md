@@ -21,7 +21,7 @@ These are the ready-to-run applications. You do not need the repository's source
 - **Batch command.** `src/batch.py` assembles a folder of AB1 files, optionally by a CSV sample sheet, and writes FASTA, a project and a triage summary. `--review` applies the same review and lists every decision in `review.tsv`.
 - **Read-only MCP quality summary** for one saved project (`src/mcp_server.py`).
 - **Double peaks as IUPAC codes** (Assembly Settings, off by default) and **smoothed chromatogram display** (Appearance).
-- Projects that contain review decisions cannot be opened in 0.1.0.
+- Projects saved in 0.2.0 keep their assembly status when the project and source AB1 files move together. Projects that contain review decisions cannot be opened in 0.1.0.
 
 ## Features
 

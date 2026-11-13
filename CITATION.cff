@@ -3,7 +3,7 @@ message: "If you use namiyomi, please cite this software and record the version 
 type: software
 title: "Namiyomi: Sanger chromatogram review and contig assembly"
 version: 0.2.0
-date-released: 2026-11-10
+date-released: 2026-11-13
 license: MIT
 repository-code: "https://github.com/yoneoka-katsuhiro/namiyomi"
 url: "https://github.com/yoneoka-katsuhiro/namiyomi"
