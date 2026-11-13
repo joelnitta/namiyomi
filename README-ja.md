@@ -84,7 +84,28 @@ AUTOは、各接頭辞が「同一個体の同一領域」を表す場合だけ�
 - **黒フラッグ**は、AUTOで付いた印です。自動で解決した箇所にも履歴として残り、その箇所は **Flags** の件数から外れます。
 - **青緑の下線**は、自動判定を反映した箇所です。
 
-**Edit > Undo** で、組み立てとレビューをまとめて取り消せます。[波形の判定ルール（英語）](docs/TRACE_REVIEW.md) · [一括処理・MCP設定ガイド（英語）](docs/BATCH.md)
+**Edit > Undo** で、組み立てとレビューをまとめて取り消せます。[波形の判定ルール（英語）](docs/TRACE_REVIEW.md)
+
+### ターミナルでAB1ファイルをまとめて処理する
+
+AB1ファイルがたくさんあるときは、コマンド一つで末端をトリミングし、試料ごとに組み立てて、FASTAに出力できます。たとえば `sample07_F.ab1` と `sample07_R.ab1` は、最初の `_` より前が同じなので、一つのグループになります。接頭辞は同じ試料・同じ領域のファイルにだけ使ってください。ファイル名で区別できないときは、CSVでグループを指定できます。
+
+**同梱デモで試す**には、Python 3.10以降を用意し、ソースコードZIPを展開します。ターミナルで、`README.md` があるフォルダを開き、次の2行を順に実行します。環境によっては `python` を `python3`（Mac）または `py -3`（Windows）に置き換えてください。[v0.2.0のソースコードZIP](https://github.com/yoneoka-katsuhiro/namiyomi/archive/refs/tags/v0.2.0.zip)
+
+```sh
+python -m pip install -r requirements/batch.txt
+python src/batch.py --input demo --output demo-results
+```
+
+1行目は初回だけです。自分のデータを処理するときは、`demo` をAB1ファイルの入ったフォルダに、`demo-results` を新しい出力フォルダ名に置き換えます。元のAB1ファイルはそのまま残ります。
+
+`demo-results` には次のファイルが入ります。
+
+- **`auto.fasta`**：デモで組み立てた配列。
+- **`project.json`**：namiyomiの **File > Import Previous Project** で開くと、波形を確認できます。
+- **`summary.tsv`**：組み立て結果と、確認が必要なコンティグの一覧。
+
+コマンドの末尾に `--review` を足すと、端末内でフラッグの位置を波形と照合し、判定を `review.tsv` に記録します。ここまでの操作にAPIキーやMCPは不要です。CSVでのグループ指定やオンラインAIの使い方は、[一括処理ガイド（英語）](docs/BATCH.md#command-line)にあります。
 
 ### 配列を検索する
 

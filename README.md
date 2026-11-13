@@ -84,7 +84,28 @@ Use **AI Review** to check flagged bases against their chromatograms.
 - **Black flag:** AUTO flagged the position. The mark stays after an automatic correction, and a corrected position no longer counts in **Flags**.
 - **Teal underline:** namiyomi applied an automatic decision at that position.
 
-Use **Edit > Undo** to undo the assembly and review together. See the [trace review guide](docs/TRACE_REVIEW.md) for how decisions are made and the [batch and MCP guide](docs/BATCH.md) for optional command-line and MCP setup.
+Use **Edit > Undo** to undo the assembly and review together. See the [trace review guide](docs/TRACE_REVIEW.md) for how decisions are made.
+
+### Process a folder of AB1 files from the command line
+
+Use the batch command to trim reads, assemble them by sample, and export FASTA in one run. For example, `sample07_F.ab1` and `sample07_R.ab1` belong to the same group because the names match before the first `_`. Use each prefix for one specimen and one locus. If your filenames do not follow this pattern, supply a CSV to define the groups.
+
+**Try the included demo** with Python 3.10 or later and the extracted source code ZIP. In a terminal, open the folder that contains `README.md` and run these two lines in order. If your system uses `python3` (Mac) or `py -3` (Windows), use that in place of `python`. [Download the v0.2.0 source code ZIP](https://github.com/yoneoka-katsuhiro/namiyomi/archive/refs/tags/v0.2.0.zip)
+
+```sh
+python -m pip install -r requirements/batch.txt
+python src/batch.py --input demo --output demo-results
+```
+
+Install the dependency once. For your own data, replace `demo` with the folder containing your AB1 files and `demo-results` with a new output folder. Your original AB1 files stay intact.
+
+Look in `demo-results` for:
+
+- **`auto.fasta`** with the assembled sequences from the demo.
+- **`project.json`**, which you can open in namiyomi with **File > Import Previous Project** to inspect the traces.
+- **`summary.tsv`** with the assembly results and contigs that need review.
+
+Add `--review` to check flagged positions against their traces on your device and save the decisions to `review.tsv`. These steps require no API key or MCP setup. For CSV grouping and optional online AI review, see the [batch guide](docs/BATCH.md#command-line).
 
 ### Find a sequence on either strand
 
