@@ -66,25 +66,25 @@ If an assembly needs to be redone, right-click its contig and choose **Return Re
 
 Use AUTO only when each prefix identifies one specimen **and one locus**. Reads already used by an existing manual or AUTO contig are excluded, and existing contigs are not rebuilt. Use the manual command when filenames do not follow this convention. A single-read group can form a contig, but it does not provide independent multi-read confirmation.
 
-### AI Review: what happens to a flagged base
+### AI Review
 
-1. Open **AI Review > Review Start**. namiyomi assembles unassigned reads by filename prefix and checks eligible flags against the original AB1 signal on your device. If the trace supports a clear decision, it can set a base or remove an extra call. **This device only** runs this step without an API key.
-2. To review the remaining eligible flags with AI, choose **OpenAI**, **Claude**, or **Gemini** in **AI Review > Settings**. Choose the model and reasoning effort, then configure your provider API key. The model receives nearby base calls, Phred scores, and a short sample of the four signal channels. AB1 files, waveform images, sample names, filenames, and absolute positions stay on your device.
-3. The model can propose a base, propose removing the call, or leave it unresolved. namiyomi applies a confident answer only when the trace supports it. A single read cannot justify deleting a call. Explicitly reviewed or edited sites and flagged IUPAC double peaks stay available for manual review as appropriate.
+Use **AI Review** to check flagged bases against their chromatograms.
 
-![The AI Review settings dialog with This device only selected and no API key.](docs/images/namiyomi-ai-settings-macos.jpg)
+1. **Start the review.** Open **AI Review > Review Start**. namiyomi uses the same filename grouping as AUTO to assemble unused reads. It then checks flagged positions on your device. Where the traces give a clear answer, it can fix a base or remove an extra base call. The default, **This device only**, needs no API key.
+2. **Ask AI about the remaining flags (optional).** Before starting, open **AI Review > Settings**, choose OpenAI, Claude, or Gemini, and enter an API key. namiyomi applies a confident answer only if the trace also supports it. Manual edits and double peaks already recorded as IUPAC codes are preserved.
 
-![The AI Review Report for synthetic reads, showing contig names and remaining flag counts.](docs/images/namiyomi-ai-report-macos.jpg)
+   The service receives the bases and quality scores near each position and a short excerpt of the signal as numbers. The original AB1 files, chromatogram images, and sample names stay on your device.
+3. **See what needs a closer look.** In **AI Review Report**, **Flags** counts the positions still open. Click a contig name to jump to a flag in the chromatogram. Click the same name again to visit its next red flag.
 
-Click a contig in the report to open its flagged waveform. Click again to cycle through its red flags. A red flag means the online model reviewed the site and left it unresolved. A black flag can mark an open site or preserve the original AUTO flag after a correction. A teal underline marks a correction. **Edit > Undo** reverses the assembly and review together. [Trace rules, examples, and benchmark limits](docs/TRACE_REVIEW.md)
+![AI Review Settings with This device only selected.](docs/images/namiyomi-ai-settings-macos.jpg)
 
-### MCP: ask an external client for a saved project's quality summary
+![AI Review Report for the included demo.](docs/images/namiyomi-ai-report-macos.jpg)
 
-MCP is optional. **Review Start** works entirely from the namiyomi menu. If you use an external MCP client, configure it to launch `src/mcp_server.py` with `--project` and the path to one saved project. Then ask the client for `get_quality_summary`, for example: “How many contigs still have review flags?” The tool returns anonymous counts, not the project or its waveforms, and cannot edit or export a sequence. Restart the server after saving to refresh the summary. The client determines what it forwards to its own model.
+- **Red flag:** AI reviewed the position, but namiyomi left it open.
+- **Black flag:** AUTO flagged the position. The mark stays after an automatic correction, and a corrected position no longer counts in **Flags**.
+- **Teal underline:** namiyomi applied an automatic decision at that position.
 
-![A local MCP request calling get_quality_summary and its response, showing anonymous counts from the synthetic demo.](docs/images/namiyomi-mcp-summary.jpg)
-
-The [batch and MCP guide](docs/BATCH.md) includes the MCP configuration and the optional batch command for assembly, review, and FASTA export.
+Use **Edit > Undo** to undo the assembly and review together. See the [trace review guide](docs/TRACE_REVIEW.md) for how decisions are made and the [batch and MCP guide](docs/BATCH.md) for optional command-line and MCP setup.
 
 ### Find a sequence on either strand
 

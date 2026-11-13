@@ -141,4 +141,6 @@ contigs or export files through MCP. The connected host may send the returned
 quality metrics to its model. The GUI's AI Review menu does not require setting up
 an external host.
 
+![A local MCP client calls get_quality_summary and receives anonymous counts for the synthetic demo.](images/namiyomi-mcp-summary.jpg)
+
 The batch and triage work is based on Joel Nitta's [PR #2](https://github.com/yoneoka-katsuhiro/namiyomi/pull/2).
