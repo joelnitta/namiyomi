@@ -18,7 +18,7 @@ class InterfaceTests(unittest.TestCase):
         with patch('app.messagebox.showinfo') as show:
             Editor.developer_dialog(SimpleNamespace())
         show.assert_called_once_with('Developer',
-            'namiyomi ver 0.1.0\n\nYoneoka Katsuhiro\nMishima, Shizuoka, JAPAN')
+            'namiyomi ver 0.2.0\n\nYoneoka Katsuhiro\nMishima, Shizuoka, JAPAN')
 
     def test_undo_redo_restores_source_and_consensus_as_one_operation(self):
         p,_,_,_,_,rt=test_core.CoreTests().paired();rt.qualities=[25]*len(rt.sequence)

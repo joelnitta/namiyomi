@@ -1,11 +1,11 @@
-# namiyomi ver 0.1.0
+# namiyomi ver 0.2.0
 
-namiyomi is a free desktop editor for routine Sanger sequencing work. It brings AB1 chromatograms, read trimming, selected-read assembly, consensus editing, and FASTA export into one workspace. All sequence processing takes place locally.
+namiyomi is a free desktop editor for routine Sanger sequencing work. It brings AB1 chromatograms, read trimming, selected-read assembly, consensus editing, and FASTA export into one workspace. Assembly and editing run locally. Online AI review is optional.
 
-## Download namiyomi ver 0.1.0 here
+## Download namiyomi ver 0.2.0 here
 
-- [Download for macOS — Apple Silicon, macOS 15+](https://github.com/yoneoka-katsuhiro/namiyomi/releases/download/v0.1.0/namiyomi-0.1.0-macOS-arm64-development.zip)
-- [Download for Windows — Windows 10/11 x64, experimental](https://github.com/yoneoka-katsuhiro/namiyomi/releases/download/v0.1.0/namiyomi-0.1.0-Windows-x64.zip)
+- [Download for macOS — Apple Silicon, macOS 15+](https://github.com/yoneoka-katsuhiro/namiyomi/releases/download/v0.2.0/namiyomi-0.2.0-macOS-arm64-development.zip)
+- [Download for Windows — Windows 10/11 x64, experimental](https://github.com/yoneoka-katsuhiro/namiyomi/releases/download/v0.2.0/namiyomi-0.2.0-Windows-x64.zip)
 
 These are the ready-to-run applications. You do not need the repository's source-code ZIP or a separate Python installation.
 
@@ -13,15 +13,22 @@ These are the ready-to-run applications. You do not need the repository's source
 
 *The consensus stays above its supporting chromatograms so each call can be checked against the original traces. This example uses the synthetic demonstration data supplied with namiyomi.*
 
-## Changes since 0.0.1
+## Changes since 0.1.0
 
-- **Windows: typing bases now works when Num Lock is on.** In 0.0.1, Windows treated Num Lock as a shortcut modifier, so A/C/G/T/N and IUPAC keys were ignored in the consensus and read views while Backspace still worked ([#1](https://github.com/yoneoka-katsuhiro/namiyomi/issues/1)). Ctrl and Alt combinations still never become base edits. macOS behavior is unchanged.
+- **Review Start checks flagged bases against the traces.** **AI Review > Review Start** assembles unused reads by filename prefix, then settles flagged columns with local trace rules: a base is set when one read is clean there or the peak is clear, and an extra base that the better read does not support is removed. This step runs on your device and needs no API key.
+- **Optional online model for what remains.** OpenAI, Claude and Gemini are supported. Only the columns the local rules left open are sent, as sampled trace signal without file names. An answer is applied only when the model is confident and the signal supports it; otherwise the column stays flagged in red with the model's suggestion in the status bar.
+- **Measured on held-out reads.** On 3,795 rbcL reads, the local rules decided 48% of flagged columns with 4 disagreements among 2,846 decisions (0.14%) against a high-quality held-out read used as a reference. The data came from one locus and one laboratory. `scripts/benchmark_trace_review.py` repeats the test on your own reads. See [How Review Start decides](https://github.com/yoneoka-katsuhiro/namiyomi/blob/main/docs/TRACE_REVIEW.md).
+- **Batch command.** `src/batch.py` assembles a folder of AB1 files, optionally by a CSV sample sheet, and writes FASTA, a project and a triage summary. `--review` applies the same review and lists every decision in `review.tsv`.
+- **Read-only MCP quality summary** for one saved project (`src/mcp_server.py`).
+- **Double peaks as IUPAC codes** (Assembly Settings, off by default) and **smoothed chromatogram display** (Appearance).
+- Projects that contain review decisions cannot be opened in 0.1.0.
 
 ## Features
 
 - AB1 import with configurable automatic end trimming and manual cuts.
 - Manual contig assembly from two or more selected reads, plus optional filename-prefix AUTO assembly.
 - Aligned source traces, original Phred bars, consensus Support Q, and review flags.
+- Review Start: automatic trace check of flagged columns, with an optional online model.
 - Base editing with linked consensus updates, Undo/Redo, and reverse complement.
 - Both-strand sequence search, with exact or 80–100% identity matching.
 - Project saving, local recovery snapshots, and FASTA export/copy.
@@ -35,18 +42,18 @@ These are the ready-to-run applications. You do not need the repository's source
 
 | File | Target |
 | --- | --- |
-| `namiyomi-0.1.0-macOS-arm64-development.zip` | Apple Silicon, macOS 15 or later. Not Intel or universal. |
-| `namiyomi-0.1.0-Windows-x64.zip` | Windows 10/11 x64; experimental. |
+| `namiyomi-0.2.0-macOS-arm64-development.zip` | Apple Silicon, macOS 15 or later. Not Intel or universal. |
+| `namiyomi-0.2.0-Windows-x64.zip` | Windows 10/11 x64; experimental. |
 
 Extract the ZIP before opening the app. A separate Python installation is not required. On Windows, open `namiyomi.exe` from the extracted folder and keep its `_internal` folder beside it.
 
 **macOS signing:** this is an ad-hoc signed development package, not Developer ID signed or Apple notarized. macOS may warn about or block it. **Windows signing:** the executable is not Authenticode signed and may also trigger security warnings. Do not disable system security protections to install either package.
 
-**Windows verification:** full hands-on testing on a physical Windows PC has not been completed, and errors may occur. The [release build](https://github.com/yoneoka-katsuhiro/namiyomi/actions/runs/42760272579) passed 161 tests on Windows Server 2022 (one platform-specific test skipped), source and packaged-GUI startup checks, and archive verification. These checks do not establish that the full interactive workflow has been verified on Windows 10/11.
+**Windows verification:** the Windows package is produced by the repository's [Actions workflow](https://github.com/yoneoka-katsuhiro/namiyomi/actions), which runs the tests and a GUI startup check on Windows Server 2022. Check the run for this release. Full hands-on testing on a physical Windows PC has not been completed, and errors may occur.
 
 ## Before using your own data
 
-Version 0.1.0 is an early release. Keep independent backups and inspect exported sequences. Project JSON files reference the original AB1 files; keep them together when moving a project. Support Q is supporting original Phred evidence, not a calibrated combined probability. Assembly is intended for small sets of overlapping reads from the same specimen and locus.
+Version 0.2.0 is an early release. Keep independent backups and inspect exported sequences, including columns settled by Review Start. Project JSON files reference the original AB1 files; keep them together when moving a project. Support Q is supporting original Phred evidence, not a calibrated combined probability. Assembly is intended for small sets of overlapping reads from the same specimen and locus.
 
 Both application ZIPs include a `demo` folder. For a first look, open its `Demo.json` through **File > Import Previous Project**. Keep the four AB1 files beside the project. These files contain synthetic demonstrations, not biological observations or instrument measurements. Use **Save Project As** if you want to keep your practice session separately.
 

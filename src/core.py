@@ -219,7 +219,10 @@ class Contig:
     black_marks: dict[str, bool] = field(default_factory=dict)
     name: str = ''
     sources: list[Source] = field(default_factory=list)
+    # Review decisions by column: a base, '' (the column holds no base) or
+    # 'N' (reviewed and still unresolved). ai_notes records who decided and why.
     ai_review: dict[str, str] = field(default_factory=dict)
+    ai_notes: dict[str, str] = field(default_factory=dict)
 
     def read_ids(self):
         return [s.read_id for s in self.sources] if self.sources else [rid for rid in (self.f_id,self.r_id) if rid]
@@ -230,11 +233,52 @@ class Contig:
 
     def call(self, col):
         key = str(col)
-        return self.overrides.get(key, self.ai_review.get(key, self.columns[col].call))
+        if key in self.overrides:
+            return self.overrides[key]
+        reviewed = self.ai_review.get(key)
+        # An unresolved review never replaces a call the consensus already made.
+        return self.columns[col].call if reviewed in (None, 'N') else reviewed
+
+    def ai_decided(self, col):
+        """Whether the review settled this column (a base, or removal of the column)."""
+        key = str(col)
+        return key not in self.overrides and self.ai_review.get(key, 'N') != 'N'
 
     def ai_unresolved(self, col):
         key = str(col)
-        return self.ai_review.get(key) == 'N' and self.black_marks.get(key, True)
+        # Earlier previews also stored N when only local rules had run.
+        return (key not in self.overrides and self.ai_review.get(key) == 'N'
+                and self.ai_notes.get(key) != 'local rules: not settled'
+                and self.black_marks.get(key, True))
+
+    def clear_review(self, col):
+        key = str(col)
+        self.ai_review.pop(key, None)
+        self.ai_notes.pop(key, None)
+
+    def auto_flagged(self, col):
+        """Whether the local consensus flagged this column before any overlay."""
+        column = self.columns[col]
+        return column.call in AMBIGUOUS or column.reason not in ('agree', 'single')
+
+    def _issue_open(self, col, key):
+        automatic = (self.call(col) in AMBIGUOUS or
+                     (self.auto_flagged(col) and key not in self.overrides
+                      and self.ai_review.get(key, 'N') == 'N'))
+        return self.black_marks.get(key, automatic)
+
+    def flag_color(self, col):
+        """Display open issues and the original flag on an AI replacement."""
+        if not 0 <= col < len(self.columns):
+            return None
+        key = str(col)
+        if self.ai_unresolved(col):
+            return 'red'
+        if self._issue_open(col, key):
+            return 'black'
+        if self.black_marks.get(key, True) and key not in self.overrides and self.auto_flagged(col):
+            return 'black'
+        return None
 
     def sequence(self):
         out=[]
@@ -245,13 +289,8 @@ class Contig:
         return ''.join(out).replace('-', '')
 
     def issues(self):
-        out=[]
-        for i,c in enumerate(self.columns):
-            key = str(i)
-            automatic = (self.call(i) in AMBIGUOUS or
-                         (c.reason not in ('agree', 'single') and key not in self.overrides and key not in self.ai_review))
-            if self.black_marks.get(key, automatic):out.append(i)
-        return out
+        """Return open issues for review reports and export confirmation."""
+        return [i for i in range(len(self.columns)) if self._issue_open(i, str(i))]
 
 
 def choose_call(f: Base | None, r: Base | None, minq: int, internal_gap: bool):
@@ -387,7 +426,7 @@ class Project:
                     col.call,col.reason,col.quality=recall(co.sources,pos,self.settings['min_quality'])
                     co.overrides.pop(str(pos),None)
                     co.black_marks.pop(str(pos),None)
-                    co.ai_review.pop(str(pos),None)
+                    co.clear_review(pos)
                 self._call_double_peaks(co, affected)
                 sync_legacy(co)
                 if not co.stale:co.signature=self.signature(co.read_ids())
@@ -412,7 +451,7 @@ class Project:
                 col.call,col.reason,col.quality=choose_call(f,r,self.settings['min_quality'],col.reason=='indel' and not removed)
                 co.overrides.pop(str(pos),None)
                 co.black_marks.pop(str(pos),None)
-                co.ai_review.pop(str(pos),None)
+                co.clear_review(pos)
                 recalled.append(pos)
             self._call_double_peaks(co, recalled)
             if not co.stale:co.signature=self.signature(self.groups()[self.key(co.sample,co.marker)])
@@ -551,7 +590,8 @@ class Project:
         co.overrides={str(n-1-int(i)):COMPLEMENT.get(value,value) for i,value in co.overrides.items()}
         co.insertions={str(n-int(i)):str(Seq(value).reverse_complement()) for i,value in co.insertions.items()}
         co.black_marks={str(n-1-int(i)):value for i,value in co.black_marks.items()}
-        co.ai_review={str(n-1-int(i)):COMPLEMENT[value] for i,value in co.ai_review.items()}
+        co.ai_review={str(n-1-int(i)):COMPLEMENT.get(value,value) for i,value in co.ai_review.items()}
+        co.ai_notes={str(n-1-int(i)):value for i,value in co.ai_notes.items()}
         sync_legacy(co);co.signature=self.signature(co.read_ids());self.dirty=True
 
     def assemble(self, key):
@@ -625,8 +665,9 @@ class Project:
             reads.append(row)
         contigs = {key: asdict(contig) for key, contig in self.contigs.items()}
         for row in contigs.values():
-            if not row['ai_review']:
-                del row['ai_review']
+            for optional in ('ai_review', 'ai_notes'):
+                if not row[optional]:
+                    del row[optional]
         return dict(format='sanger-edit-project',version=1,settings=self.settings,trim_settings=self.trim_settings,appearance=self.appearance,find_settings=self.find_settings,
                      reads=reads,contigs=contigs)
 
@@ -708,9 +749,12 @@ class Project:
                 if not 0<=int(i)<len(contig.columns) or len(value)>1:raise ValueError('Invalid consensus edit position.')
                 base_text(value,empty=True)
             for i, value in contig.ai_review.items():
-                if (not 0 <= int(i) < len(contig.columns) or value not in ('A', 'C', 'G', 'T', 'N')
-                        or contig.columns[int(i)].call != 'N'):
-                    raise ValueError('Invalid AI consensus review position or base.')
+                if not 0 <= int(i) < len(contig.columns) or value not in ('A', 'C', 'G', 'T', 'N', ''):
+                    raise ValueError('Invalid consensus review position or decision.')
+            for i, value in contig.ai_notes.items():
+                if (i not in contig.ai_review or not isinstance(value, str) or len(value) > 200
+                        or re.search(r'[\x00-\x1f]', value)):
+                    raise ValueError('Invalid consensus review note.')
             for i,value in contig.insertions.items():
                 if not 0<=int(i)<=len(contig.columns):raise ValueError('Invalid consensus insertion position.')
                 base_text(value)

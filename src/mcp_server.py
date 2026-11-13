@@ -14,7 +14,8 @@ MAX_ROWS = 50
 TOOL = {
     'name': 'get_quality_summary',
     'description': 'Get anonymous Sanger quality metrics for the selected project. '
-                   'Reports counts and at most 50 contigs in review priority order.',
+                   'Reports counts, including columns settled or removed by the review, '
+                   'and at most 50 contigs in review priority order.',
     'inputSchema': {'type': 'object', 'properties': {}, 'additionalProperties': False},
     'annotations': {'readOnlyHint': True, 'openWorldHint': False},
 }
@@ -39,6 +40,10 @@ def quality_snapshot(project, made=(), failed=0):
                                            for r in rows),
                    review_flags=sum(len(r['issue_columns']) for r in rows),
                    red_flags=sum(red.values()),
+                   review_settled=sum(contig.ai_decided(int(i)) for contig in project.contigs.values()
+                                      for i in contig.ai_review),
+                   review_removed=sum(contig.ai_decided(int(i)) and contig.call(int(i)) == ''
+                                      for contig in project.contigs.values() for i in contig.ai_review),
                    flagged_contigs=sum(bool(r['issue_columns']) for r in rows),
                    stale_contigs=sum(r['stale'] for r in rows),
                    uncalled_bases=sum(r['n_calls'] for r in rows),
@@ -108,19 +113,6 @@ class QualityServer:
                 result['structuredContent'] = self.summary
             return reply(result=result)
         return error(-32601, 'Method not found')
-
-
-def read_quality(summary):
-    """The GUI calls the same tool locally, without opening a listener."""
-    dispatch = QualityServer(summary).dispatch
-
-    def call(method, **params):
-        return dispatch(dict(jsonrpc='2.0', id=1, method=method, params=params))['result']
-
-    call('initialize', protocolVersion=VERSIONS[0], capabilities={},
-         clientInfo=dict(name='namiyomi GUI', version=APP_VERSION))
-    dispatch(dict(jsonrpc='2.0', method='notifications/initialized'))
-    return call('tools/call', name=TOOL['name'], arguments={})['structuredContent']
 
 
 def main():

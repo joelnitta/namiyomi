@@ -1,4 +1,4 @@
-namiyomi ver 0.1.0 — macOS
+namiyomi ver 0.2.0 — macOS
 
 A focused AB1 chromatogram editor and Sanger contig assembler.
 Free software under the MIT License.
@@ -38,9 +38,20 @@ same specimen and locus. Build Contig (manual) supports two or more reads.
 Check the consensus against the traces before exporting FASTA. The in-app
 Help > How To provides numbered instructions.
 
+REVIEW START
+
+AI Review > Review Start assembles unused reads by filename prefix (the text
+before the first underscore) and checks every flagged base against the traces
+on this computer. It settles a flag when one read is clean there or the peak is
+clear, and removes an extra base that the better read does not support. To have
+an online model look at what remains, add a provider and API key in
+AI Review > Settings; only those columns are sent, without file names. Red
+flags are still open. Undo reverses everything at once. Check the result
+before exporting.
+
 KEEP YOUR DATA SAFE
 
-Version 0.1.0 is an early release. Keep original AB1 files and independent backups.
+Version 0.2.0 is an early release. Keep original AB1 files and independent backups.
 Project JSON references the AB1 files rather than embedding them. When moving a
 project to another computer, include those AB1 files and preserve their relative
 folder structure. Recovery snapshots do not replace regular saving or backups.

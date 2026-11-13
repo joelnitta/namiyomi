@@ -1,13 +1,13 @@
 # Building and distributing namiyomi
 
-This guide describes version 0.1.0. Downloadable applications are available from [GitHub Releases](https://github.com/yoneoka-katsuhiro/namiyomi/releases); they include Python and do not require a separate Python installation.
+This guide describes version 0.2.0. Downloadable applications are available from [GitHub Releases](https://github.com/yoneoka-katsuhiro/namiyomi/releases); they include Python and do not require a separate Python installation.
 
 ## Platform and signing status
 
 | Package | Target | Signing / validation boundary |
 | --- | --- | --- |
-| `namiyomi-0.1.0-macOS-arm64-development.zip` | Apple Silicon; macOS 15+ | Ad-hoc signed development application. No Developer ID signature or Apple notarization. Not built for Intel Macs. |
-| `namiyomi-0.1.0-Windows-x64.zip` | Windows 10/11 x64 | Experimental, not Authenticode signed. Windows Server 2022 is used for automated build/startup checks; see the corresponding [Actions run](https://github.com/yoneoka-katsuhiro/namiyomi/actions). Full hands-on testing on a physical Windows PC is not complete. |
+| `namiyomi-0.2.0-macOS-arm64-development.zip` | Apple Silicon; macOS 15+ | Ad-hoc signed development application. No Developer ID signature or Apple notarization. Not built for Intel Macs. |
+| `namiyomi-0.2.0-Windows-x64.zip` | Windows 10/11 x64 | Experimental, not Authenticode signed. Windows Server 2022 is used for automated build/startup checks; see the corresponding [Actions run](https://github.com/yoneoka-katsuhiro/namiyomi/actions). Full hands-on testing on a physical Windows PC is not complete. |
 
 A successful build, unit test run, or startup check does not establish that every GUI operation works on another computer. In particular, the Windows package still needs hands-on import, assembly, editing, Undo, saving, reopening, recovery, and FASTA-export testing on Windows 10/11.
 
@@ -75,7 +75,7 @@ source .venv/bin/activate
 NAMIYOMI_INSTALL=0 SANGER_PYTHON="$PWD/.venv/bin/python" ./packaging/build_macos.command
 ```
 
-The default path runs the tests, builds the native menu helper, packages the application with PyInstaller, collects third-party notices, applies an ad-hoc signature, verifies it, and writes `release/namiyomi-0.1.0-macOS-arm64-development.zip`. It does not upload the app to Apple. The build script resolves its source and resource paths from its own location and can also be invoked from another working directory.
+The default path runs the tests, builds the native menu helper, packages the application with PyInstaller, collects third-party notices, applies an ad-hoc signature, verifies it, and writes `release/namiyomi-0.2.0-macOS-arm64-development.zip`. It does not upload the app to Apple. The build script resolves its source and resource paths from its own location and can also be invoked from another working directory.
 
 `NAMIYOMI_INSTALL=1` also installs the application in the current user's `Applications` folder. `SANGER_APP_DIR` can name a different installation folder. The script refuses to replace a running app or an unrelated application. Previous generated application/archive copies are moved to Trash rather than silently overwritten. Only temporary intermediates created by that invocation are removed automatically.
 
@@ -99,7 +99,7 @@ The identity and profile names are placeholders, not credentials. The script req
 
 Notarization uploads the application bundle to Apple, not AB1 files or projects. The script waits for the result, retrieves the service log, and requires a matching accepted submission without unresolved log issues. It then staples and validates the ticket, verifies the signature, and assesses the app with Gatekeeper. The final ZIP is extracted and assessed again before a `-notarized.zip` is emitted. Signing without notarization is labelled `-signed-unnotarized.zip`.
 
-Treat upload success or an `Accepted` result alone as insufficient release evidence. Review the service log and test the downloaded, extracted package on a second Mac. The published version 0.1.0 development package has **not** completed this Developer ID/notarization path.
+Treat upload success or an `Accepted` result alone as insufficient release evidence. Review the service log and test the downloaded, extracted package on a second Mac. The published version 0.2.0 development package has **not** completed this Developer ID/notarization path.
 
 ## Build the Windows ZIP
 
@@ -109,7 +109,7 @@ Build natively on x64 Windows with Python 3.12 and the pinned dependencies in `r
 .\packaging\build_windows.ps1 -Python ".\.venv\Scripts\python.exe"
 ```
 
-The script runs tests and a source startup check, builds a windowed application with PyInstaller, collects third-party notices, and writes `release/namiyomi-0.1.0-Windows-x64.zip`. It then extracts the actual ZIP and runs the packaged executable's startup check. It also writes source/binary check reports and a SHA-256 checksum beside the ZIP. It refuses to overwrite an existing release archive.
+The script runs tests and a source startup check, builds a windowed application with PyInstaller, collects third-party notices, and writes `release/namiyomi-0.2.0-Windows-x64.zip`. It then extracts the actual ZIP and runs the packaged executable's startup check. It also writes source/binary check reports and a SHA-256 checksum beside the ZIP. It refuses to overwrite an existing release archive.
 
 The ZIP contains a `namiyomi` directory with `namiyomi.exe`, `_internal`, the synthetic `demo` folder, license/citation files, and `START_HERE.txt`. Keep the complete folder together. The macOS package similarly includes `namiyomi.app`, the demo, notices, and introductory instructions in its top-level `namiyomi` folder. The build script does not request administrator rights or change PowerShell execution policy; follow your system's policy if script execution is restricted.
 

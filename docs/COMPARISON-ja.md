@@ -10,7 +10,7 @@ namiyomiは、AB1の波形を確認し、同一個体・同一領域のリード
 
 | ソフト | 波形確認・コンティグ作成 | 自動処理・検索 | 配布・料金体系 |
 | --- | --- | --- | --- |
-| **namiyomi 0.1.0** | 2本以上を選択して作成。コンセンサスの下に元リードの波形を表示し、元リードの編集からコンセンサスを再計算。AB1へ戻して作り直す操作も用意。 | 未使用リードを、元のファイル名の最初の`_`より前でまとめるAUTO。検索は両鎖、80～100%、ギャップなしの文字一致。 | MITで無償。Apple Silicon/macOS 15以降、Windows 10/11 x64試験版。Windows実機での一連の操作確認は未完了。Macは未公証。 |
+| **namiyomi 0.2.0** | 2本以上を選択して作成。コンセンサスの下に元リードの波形を表示し、元リードの編集からコンセンサスを再計算。AB1へ戻して作り直す操作も用意。 | 未使用リードを、元のファイル名の最初の`_`より前でまとめるAUTO。検索は両鎖、80～100%、ギャップなしの文字一致。 | MITで無償。Apple Silicon/macOS 15以降、Windows 10/11 x64試験版。Windows実機での一連の操作確認は未完了。Macは未公証。 |
 | **[ChromasPro](https://technelysium.com.au/wp/chromaspro/)** | グラフィカルな重複アセンブリ、コンセンサス、曖昧な位置の表示、品質トリミング、整列した波形の編集。[更新履歴](https://technelysium.com.au/wp/chromaspro-version-history/)には、選択配列だけのアセンブリも記載。 | 完全一致・最適アラインメント検索と、コンセンサス検索に対応。namiyomiと同じ接頭辞ルールのAUTOは、参照した公開説明では確認できませんでした。「機能がない」という意味ではありません。 | 公式案内はWindows。有償ですが、[月額と買い切りの両方](https://technelysium.com.au/wp/purchase/)があり、試用版も提供。 |
 | **[CodonCode Aligner](https://codoncode.com/aligner/features.htm)** | 複数のアルゴリズムによるアセンブリ、品質に基づくコンセンサス、波形・コンティグの編集、低品質末端やベクターの除去、ヘテロ接合のSNP・挿入欠失の検出。 | [Assemble by Name](https://codoncode.com/aligner/learn/sequence-assembly/how-to-assemble-by-name.htm)で、名前の一部により多数のサンプルを一括でグループ化。クローニングやプライマー設計の機能もあり。 | 有償。[買い切りライセンス](https://codoncode.com/aligner/aligner_prices.htm)（アカデミック・企業、単一ユーザー・同時利用）と任意の年間保守、学生・授業用ライセンス、30日間の試用版。[Windows 7～11（64-bit）、macOS 10.12以降](https://codoncode.com/aligner/download.htm)。 |
 | **[Geneious Prime](https://www.geneious.com/tutorials/assembling-chromatograms)** | Sangerのトリミング、de novo・参照配列へのアセンブリ、波形・コンセンサス編集を含む統合環境。 | [Assemble by Name](https://manual.geneious.com/en/latest/AssemblyMapping.html)は、区切り文字と名前の何番目を使うかを指定してグループ化。[ワークフロー](https://www.geneious.com/tutorials/automated-workflows)で、トリミングから下流解析まで連結可能。 | Windows/macOS/Linux。[現行の公開プラン](https://www.geneious.com/pricing)は年額制。試用版あり。旧バージョンには買い切りライセンスも存在。 |
@@ -42,4 +42,4 @@ READMEやリリースの記載日だけを根拠に、他のプロジェクト�
 | 確認中の配列をその場で検索する | コンセンサス直上のFindで両鎖を検索し、オレンジ色で表示。 | 操作位置の設計上の特徴です。計算速度が他製品より速いと検証したものではありません。検索はギャップなしで、IUPACも文字どおりに照合します。 |
 | Macでも同じ目的のアプリを使う | Pythonを別途準備しなくてよいApple Siliconアプリを配布。Windows版も同じ作業を対象に構成。 | Macは15以降のみで、Intel版・Linux版はありません。Windows版は試験公開で、両OSとも発行元証明書によるコード署名はありません。 |
 
-namiyomiは、作業全体が1つの画面に収まるよう、機能を意図的に少なくしています。自分の作業に合うかどうかは、付属の合成デモプロジェクトで手早く確かめられます。「検索が速い」「アセンブリが正確」「メモリ使用量が少ない」といった主張には、同じデータ・条件による測定と再現可能な比較が必要です。ver 0.1.0では、そのようなベンチマーク結果は主張していません。
+namiyomiは、作業全体が1つの画面に収まるよう、機能を意図的に少なくしています。自分の作業に合うかどうかは、付属の合成デモプロジェクトで手早く確かめられます。「検索が速い」「アセンブリが正確」「メモリ使用量が少ない」といった主張には、同じデータ・条件による測定と再現可能な比較が必要です。ver 0.2.0では、そのようなベンチマーク結果は主張していません。

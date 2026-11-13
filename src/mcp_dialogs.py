@@ -1,61 +1,56 @@
 """Native Tk dialogs for the optional local assembly and MCP review workflow."""
+from bisect import bisect_right
 from copy import copy
 from queue import Empty, Queue
-from threading import Thread
+from threading import Event, Thread
+from time import monotonic
 import tkinter as tk
 from tkinter import messagebox, ttk
 
 from auto_assembly import assemble_groups, unassembled_groups
-from base_review import screen_uncalled
+from auto_review import local_review, model_batches, model_review
 from llm_review import (DEFAULT_EFFORT, EFFORTS, GEMINI, KEY_ENV, LANGUAGES, MODELS, OFFLINE,
-                        PROVIDERS, ReviewError, ReviewPreferences, ReviewSettings, approve_base_candidates,
-                        format_report, list_models, ordered_contigs, prioritize_contigs, test_connection)
-from mcp_server import quality_snapshot, read_quality
+                        PROVIDERS, WAVEFORM_WORKERS, ReviewError, ReviewPreferences, ReviewSettings,
+                        format_report, list_models, test_connection)
+from mcp_server import quality_snapshot
+from review_progress import ReviewProgress
 
-TITLE = 'Full auto mode by LLM'
+TITLE = 'Review Start'
 
 
-def assemble_snapshot(project, groups):
+def assemble_snapshot(project, groups, *, on_group_done=None):
     """Operate on a private project; only new contigs can be applied to the editor."""
-    made, errors = assemble_groups(project, groups)
+    made, errors = assemble_groups(project, groups, on_group_done=on_group_done)
     summary, rows = quality_snapshot(project, made, len(errors))
-    return {key: project.contigs[key] for key in made}, errors, read_quality(summary), rows
+    return {key: project.contigs[key] for key in made}, errors, summary, rows
 
 
-def review_snapshot(project, groups, config):
-    made, errors, summary, rows = assemble_snapshot(project, groups)
-    if config.provider == OFFLINE or not rows:
-        return made, errors, summary, rows, (), None
+def review_snapshot(project, groups, config, *, on_progress=None, is_cancelled=None):
+    """Assemble, settle flagged columns with the local trace rules, then ask the model about the rest."""
+    def report(stage, completed=0, total=1):
+        if on_progress is not None:
+            on_progress(stage, completed, total)
 
-    candidates, unresolved = screen_uncalled(project)
-    try:
-        approved = approve_base_candidates(config, [candidate.metrics for candidate in candidates])
-    except (ReviewError, ValueError) as exc:
-        return made, errors, summary, rows, (), str(exc)
+    made, errors, summary, rows = assemble_snapshot(
+        project, groups, on_group_done=lambda done, total: report('assembly', done, total))
+    if not rows:
+        return made, errors, summary, rows, None
 
-    pending = {site: 'N' for site in unresolved}
-    for i, candidate in enumerate(candidates):
-        pending[candidate.contig, candidate.column] = candidate.base if i in approved else 'N'
-    previous = {}
-    for (key, column), base in pending.items():
-        contig = project.contigs[key]
-        if contig.ai_review.get(str(column)) != base:
-            if key not in previous:
-                previous[key] = contig.ai_review.copy()
-            contig.ai_review[str(column)] = base
-    updated, updated_rows = (quality_snapshot(project, made, len(errors)) if previous else (summary, rows))
+    report('screening')
+    outcome, remaining = local_review(project)
     failure = None
-    try:
-        priority = prioritize_contigs(config, read_quality(updated))
-    except (ReviewError, ValueError) as exc:
-        # Without candidates, prioritization is the only provider call in this run.
-        if not candidates:
-            for key, review in previous.items():
-                project.contigs[key].ai_review = review
-            return made, errors, summary, rows, (), str(exc)
-        priority, failure = (), str(exc)
-    updated['replaced_n'] = len(approved)
-    return {**made, **{key: project.contigs[key] for key in previous}}, errors, updated, updated_rows, priority, failure
+    if config.provider != OFFLINE and remaining:
+        report('approvals', 0, model_batches(remaining))
+        try:
+            model_review(project, remaining, config, outcome, is_cancelled=is_cancelled,
+                         on_batch_done=lambda done, total, replied: report('approvals', done, total))
+        except (ReviewError, ValueError) as exc:
+            failure = str(exc)
+    if is_cancelled is not None and is_cancelled():
+        failure = failure or 'Review cancelled.'
+    updated, updated_rows = quality_snapshot(project, made, len(errors))
+    changes = {key: project.contigs[key] for key in outcome.changed}
+    return {**made, **changes}, errors, dict(updated, review=outcome.summary()), updated_rows, failure
 
 
 class McpDialogs:
@@ -88,7 +83,7 @@ class McpDialogs:
         options = {'font': 'TkHeadingFont'} if strong else {}
         return ttk.Label(parent, text=text, wraplength=width, justify='left', **options)
 
-    def _background(self, window, task, done):
+    def _background(self, window, task, done, *, on_wait=None):
         results = Queue()
 
         def work():
@@ -105,6 +100,8 @@ class McpDialogs:
             try:
                 result, error = results.get_nowait()
             except Empty:
+                if on_wait is not None:
+                    on_wait()
                 self.editor.after(70, poll)
             else:
                 done(result, error)
@@ -113,12 +110,12 @@ class McpDialogs:
         self.editor.after(70, poll)
 
     def settings(self):
-        window, body = self._open('MCP Settings')
+        window, body = self._open('AI Review Settings')
         if window is None:
             return
-        self._label(body, 'Connect a review provider', strong=True).pack(anchor='w')
-        self._label(body, 'Choose which service writes the quality report. Online providers '
-                    'require an API key with access to the selected model.').pack(anchor='w', pady=(5, 12))
+        self._label(body, 'Choose where to review flags', strong=True).pack(anchor='w')
+        self._label(body, 'Local trace rules run first. To review remaining columns with an online model, '
+                    'choose a provider and enter an API key with access to that model.').pack(anchor='w', pady=(5, 12))
         form = ttk.Frame(body)
         form.pack(fill='x')
         form.columnconfigure(1, weight=1)
@@ -201,7 +198,7 @@ class McpDialogs:
             self.config = config
             self.session_settings[config.provider] = config
             window.destroy()
-            self.editor.status.set('MCP settings applied.')
+            self.editor.status.set('AI review settings applied.')
 
         refresh_button = ttk.Button(model_row, text='Refresh Models', command=lambda: connect(refresh=True))
         refresh_button.pack(side='right', padx=(6, 0))
@@ -230,9 +227,10 @@ class McpDialogs:
             effort_box.configure(values=EFFORTS[choice], state='disabled' if offline else 'readonly')
             for widget in (model_entry, key_entry, test_button, refresh_button):
                 widget.configure(state='disabled' if offline else 'normal')
-            notice.set('Uses a built-in report. No API key or internet connection is needed.' if offline else
+            notice.set('Checks flagged bases with local trace rules. No API key or internet connection is needed.' if offline else
                        f'Keys entered here last until the app closes. Leave blank to use {KEY_ENV[choice]}. '
-                       'Effort levels vary by model. Test Connection checks the selected level and may incur API charges.')
+                       'Effort levels vary by model; High read traces most accurately in our tests. '
+                       'Test Connection checks the selected level and may incur API charges.')
 
         combo.bind('<<ComboboxSelected>>', sync)
         sync()
@@ -245,6 +243,7 @@ class McpDialogs:
             self.window.lift()
             return
         if self.results_window is not None and self.results_window.winfo_exists():
+            self.results_window.deiconify()
             self.results_window.lift()
             return
         project = app.project
@@ -268,13 +267,20 @@ class McpDialogs:
         self._label(body, 'Groups use the filename before the first underscore. Use this only if '
                     'each prefix is one specimen and one locus.'
                     if groups else 'All reads already belong to contigs. The report will use the current project.').pack(anchor='w')
-        self._label(body, f'2. Review quality with {config.provider}', strong=True).pack(anchor='w', pady=(12, 4))
+        self._label(body, '2. Check flagged bases against the traces on this device', strong=True).pack(anchor='w', pady=(12, 4))
+        self._label(body, 'Local rules settle a flagged base when one read is clean there or the peak is clear. '
+                    'They can set a base or remove a column that the better read does not support. '
+                    'Manual edits and IUPAC double-peak calls stay in place.').pack(anchor='w')
         if config.provider == OFFLINE:
-            sharing = 'Use a built-in report to try the workflow. Nothing is sent over the internet.'
+            self._label(body, '3. No online review', strong=True).pack(anchor='w', pady=(12, 4))
+            sharing = 'Columns the local rules cannot settle remain open for manual review. Nothing is sent over the internet.'
         else:
-            sharing = (f'Review uncertain consensus bases with {config.provider} using anonymous quality metrics. '
-                       'Approved N replacements are applied as one undoable operation with assembly. '
-                       'Sequences and traces stay on this device. API usage may be billed.')
+            self._label(body, f'3. Ask {config.provider} about the columns that remain', strong=True).pack(anchor='w', pady=(12, 4))
+            sharing = (f'Send sampled trace signal, nearby base calls and Phred scores for those columns to '
+                       f'{config.provider} ({config.model}), with anonymous read labels. File names and images stay on this device. '
+                       'An answer is applied only when the model is confident and the signal supports it. '
+                       'Red flags mark columns the model reviewed but did not settle. '
+                       'All changes and the assembly can be undone together. API usage may be billed.')
             if config.provider == GEMINI:
                 sharing += ' Google may use free-tier requests to improve its products.'
         self._label(body, sharing).pack(anchor='w')
@@ -283,7 +289,7 @@ class McpDialogs:
         buttons.pack(fill='x', pady=(16, 0))
         cancel = ttk.Button(buttons, text='Cancel', command=window.destroy)
         cancel.pack(side='right')
-        ttk.Button(buttons, text='OK',
+        ttk.Button(buttons, text='Review on This Device' if config.provider == OFFLINE else 'Review and Send Open Columns',
                    command=lambda: self._run(window, body, project, revision, groups, config)).pack(side='right', padx=6)
         cancel.focus_set()
         self._center(window)
@@ -301,25 +307,65 @@ class McpDialogs:
         snapshot.traces = project.traces.copy()
         for widget in body.winfo_children():
             widget.destroy()
-        self._label(body, 'Full auto analysis', strong=True).pack(anchor='w')
-        progress = tk.StringVar(window, value='Assembling reads and reviewing consensus quality…')
+        japanese = config.language == 'Japanese'
+        stages = {
+            'assembly': 'リードをアセンブリ中…' if japanese else 'Assembling reads…',
+            'screening': '波形ルールでフラッグを確認中…' if japanese else 'Checking flagged bases against the traces…',
+            'approvals': 'AIが残りの波形を確認中…' if japanese else 'The model is reading the remaining traces…',
+            'applying': '結果を反映中…' if japanese else 'Applying results…',
+        }
+        progress = tk.StringVar(window, value=stages['assembly'])
+        percent = tk.IntVar(window, value=0)
+        timing = tk.StringVar(window, value='0%')
         ttk.Label(body, textvariable=progress, width=62, wraplength=470).pack(anchor='w', pady=(8, 12))
-        bar = ttk.Progressbar(body, mode='indeterminate')
-        bar.pack(fill='x')
-        bar.start(14)
-        ttk.Button(body, text='Close', command=window.destroy).pack(anchor='e', pady=(12, 0))
+        ttk.Progressbar(body, mode='determinate', maximum=100, variable=percent).pack(fill='x')
+        ttk.Label(body, textvariable=timing).pack(anchor='w', pady=(5, 0))
+        cancelled = Event()
+        window.bind('<Destroy>', lambda event: cancelled.set() if event.widget is window else None, add='+')
+        cancel = ttk.Button(body, text='Cancel', command=window.destroy)
+        cancel.pack(anchor='e', pady=(12, 0))
         self._center(window)
+
+        state = ReviewProgress(len(groups), config.provider != OFFLINE, config.effort, monotonic(),
+                               parallel_requests=WAVEFORM_WORKERS)
+        updates = Queue()
+
+        def render(stage=None):
+            while True:
+                try:
+                    update = updates.get_nowait()
+                except Empty:
+                    break
+                state.update(*update)
+            if stage is not None:
+                state.update(stage, 0, 1, monotonic())
+            value, remaining = state.estimate(monotonic())
+            value = min(value, percent.get() + 8)
+            percent.set(value)
+            progress.set(stages[state.stage])
+            if remaining is None:
+                estimate = '応答待ち（残り時間は未確定）' if japanese else 'Waiting for response · remaining time unknown'
+            elif japanese:
+                minutes, seconds = divmod(remaining, 60)
+                estimate = f'残り約{minutes}分{seconds}秒' if minutes else f'残り約{seconds}秒'
+            else:
+                minutes, seconds = divmod(remaining, 60)
+                estimate = f'About {minutes}m {seconds:02}s remaining' if minutes else f'About {seconds}s remaining'
+            timing.set(f'{value}%  ·  {estimate}')
 
         def finished(result, error):
             if error:
-                bar.stop()
                 progress.set(error)
+                timing.set(f'{percent.get()}%')
+                cancel.configure(text='Close')
                 return
             if app.project is not project or app.revision != revision:
-                bar.stop()
                 progress.set('The project changed. No assembly result was applied.')
+                timing.set(f'{percent.get()}%')
+                cancel.configure(text='Close')
                 return
-            contigs, errors, summary, rows, priority, failure = result
+            render('applying')
+            contigs, errors, summary, rows, failure = result
             if contigs:
                 entry = app.history_entry()
                 project.contigs.update(contigs)
@@ -330,49 +376,67 @@ class McpDialogs:
                 app.update_title()
                 # Keep focus in the dialog while Tk's editor refreshes.
                 window.focus_set()
-            app.status.set(f'Full auto: {summary["new_contigs"]} built | {len(errors)} groups failed')
-            self._results(window, body, project, config, summary, rows, errors, priority, failure)
+            review = summary.get('review')
+            app.status.set(f'Review: {summary["new_contigs"]} built | {len(errors)} groups failed'
+                           + (f' | {review["local_resolved"] + review["model_resolved"]} of {review["sites"]} flags settled'
+                              if review else ''))
+            percent.set(100)
+            progress.set('結果を表示します' if japanese else 'Results ready')
+            timing.set('100%')
 
-        self._background(window, lambda: review_snapshot(snapshot, groups, config), finished)
+            def show_results():
+                if window.winfo_exists():
+                    self._results(window, body, project, config, summary, rows, failure)
 
-    def _results(self, window, body, project, config, summary, rows, errors, priority, failure):
+            app.after(250, show_results)
+
+        self._background(window, lambda: review_snapshot(
+            snapshot, groups, config, on_progress=lambda *update: updates.put((*update, monotonic())),
+            is_cancelled=cancelled.is_set),
+            finished, on_wait=render)
+
+    def _results(self, window, body, project, config, summary, rows, failure):
         app = self.editor
         for widget in body.winfo_children():
             widget.destroy()
-        window.title('Full auto analysis · Results')
+        window.title('AI Review Report')
         window.grab_release()
         window.unbind('<Escape>')
         self.window = None
         self.results_window = window
-        self._label(body, 'Analysis results', strong=True).pack(anchor='w')
-        report = format_report(config, summary, priority, failure=bool(failure))
-        self._label(body, report, width=545).pack(anchor='w', pady=(8, 14))
+        report = format_report(config, summary, failure=failure)
+        report_label = self._label(body, report, width=545)
+        report_label.pack(fill='x', pady=(0, 14) if rows else 0)
         table_frame = ttk.Frame(body)
         if rows:
-            table_frame.pack(fill='x')
+            table_frame.pack(fill='both', expand=True)
+        special_status = any(row['stale'] or row['category'] == 'single_read' for row in rows)
+        columns = ('name', 'category', 'length', 'flags')
+        visible_columns = columns if special_status else ('name', 'length', 'flags')
         table = ttk.Treeview(table_frame, show='headings', height=min(6, max(2, len(rows))), selectmode='browse',
-                             columns=('id', 'name', 'category', 'length', 'flags', 'red'))
-        for col, name, width in (('id', 'ID', 55), ('name', 'Contig', 205), ('category', 'Status', 132),
-                                 ('length', 'Length (bp)', 88), ('flags', 'Flags', 54), ('red', 'Red', 44)):
+                             columns=columns, displaycolumns=visible_columns)
+        for col, name, width in (('name', 'Contig', 205), ('category', 'Status', 132),
+                                 ('length', 'Length (bp)', 88), ('flags', 'Flags', 76)):
             table.heading(col, text=name)
             table.column(col, width=width, stretch=col == 'name', anchor='w' if col in ('name', 'category') else 'center')
         scroll = ttk.Scrollbar(table_frame, orient='vertical', command=table.yview)
         table.configure(yscrollcommand=scroll.set)
         scroll.pack(side='right', fill='y')
-        table.pack(side='left', fill='x', expand=True)
+        table.pack(side='left', fill='both', expand=True)
         keys = {}
-        for row in ordered_contigs(rows, priority):
+        for row in rows:
             ident = row['id']
             keys[ident] = row['key']
-            label = {'clean': 'No flags', 'needs_review': 'Needs review', 'single_read': 'Single read'}[row['category']]
-            table.insert('', 'end', iid=ident, values=(ident, row['name'],
-                         'Stale' if row['stale'] else label, row['length_bp'], row['review_flags'], row['red_flags']))
+            label = 'Stale' if row['stale'] else 'Single read' if row['category'] == 'single_read' else ''
+            table.insert('', 'end', iid=ident,
+                         values=(row['name'], label, row['length_bp'], row['review_flags']))
         if config.provider == OFFLINE:
-            self._label(body, 'Offline preview · no API request').pack(anchor='w', pady=(8, 0))
-        buttons = ttk.Frame(body)
-        buttons.pack(fill='x', pady=(10, 0))
+            self._label(body, 'Reviewed on this device · no API request').pack(anchor='w', pady=(8, 0))
+        last_contig = None
+        last_red_flag = None
 
         def inspect(event=None):
+            nonlocal last_contig, last_red_flag
             selected = (table.identify_row(event.y) if event is not None and event.type == tk.EventType.ButtonRelease
                         else next(iter(table.selection()), ''))
             if selected not in keys:
@@ -384,32 +448,32 @@ class McpDialogs:
             app.show_contig(key)
             contig = project.contigs[key]
             flags = contig.issues()
+            red_flags = [i for i in flags if contig.ai_unresolved(i)]
+            previous = last_red_flag if key == last_contig else None
+            last_contig, last_red_flag = key, None
+            if red_flags:
+                index = bisect_right(red_flags, previous) if previous is not None else 0
+                last_red_flag = red_flags[index % len(red_flags)]
+                app.selection = app.anchor = last_red_flag
+            elif flags:
+                app.selection = app.anchor = flags[0]
             if flags:
-                app.selection = app.anchor = next((i for i in flags if contig.ai_unresolved(i)), flags[0])
                 app.ensure_visible()
                 app.update_status()
 
-        def details():
-            sections = [failure] if failure else []
-            if errors:
-                groups = '\n'.join(errors[:12])
-                if len(errors) > 12:
-                    groups += f'\n… {len(errors) - 12} more'
-                sections.append('Groups not assembled:\n' + groups)
-            messagebox.showinfo('Analysis details', '\n\n'.join(sections), parent=window)
-
-        ttk.Button(buttons, text='Copy Report', command=lambda: app.put_clipboard(report, 'Copied quality report.')).pack(side='left')
-        if failure or errors:
-            ttk.Button(buttons, text='Details…', command=details).pack(side='left', padx=6)
-        view = ttk.Button(buttons, text='Open Contig', command=inspect, state='disabled')
-        if rows:
-            view.pack(side='left', padx=6)
-        table.bind('<<TreeviewSelect>>', lambda _: view.configure(state='normal' if table.selection() else 'disabled'))
         table.bind('<ButtonRelease-1>', inspect)
         table.bind('<Return>', inspect)
-        close = ttk.Button(buttons, text='Close', command=window.destroy)
-        close.pack(side='right')
-        if table.get_children():
-            table.selection_set(table.get_children()[0])
-        close.focus_set()
+        if rows:
+            first = table.get_children()[0]
+            table.selection_set(first)
+            table.focus(first)
+            table.focus_set()
         self._center(window)
+        window.geometry(f'{window.winfo_width()}x{window.winfo_height()}')
+        window.minsize(500 if special_status else 390, 190 if rows else 100)
+        window.resizable(True, True)
+
+        def wrap_report(event):
+            report_label.configure(wraplength=event.width)
+
+        report_label.bind('<Configure>', wrap_report)

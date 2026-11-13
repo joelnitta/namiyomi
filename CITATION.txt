@@ -1,6 +1,6 @@
 Suggested citation:
 Yoneoka, K. (2026). Namiyomi: Sanger chromatogram review and contig assembly
-(Version 0.1.0) [Computer software]. GitHub.
+(Version 0.2.0) [Computer software]. GitHub.
 https://github.com/yoneoka-katsuhiro/namiyomi
 
 In-text citation: Yoneoka (2026) or (Yoneoka, 2026).

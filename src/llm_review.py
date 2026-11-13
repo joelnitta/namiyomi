@@ -1,9 +1,12 @@
-"""Provider settings and HTTPS calls for the optional QC report."""
+"""Provider settings and HTTPS calls for the optional base review."""
 from dataclasses import dataclass, field
 import json
 import os
 from pathlib import Path
+from queue import Empty, Queue
 import re
+from socket import gaierror
+from threading import Thread
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
 from urllib.request import HTTPRedirectHandler, Request, build_opener
@@ -11,12 +14,13 @@ from urllib.request import HTTPRedirectHandler, Request, build_opener
 from core import atomic_text
 from platform_support import application_support_directory
 
-OFFLINE = 'Offline preview'
+OFFLINE = 'This device only'
+LEGACY_PROVIDERS = {'Offline preview': OFFLINE}
 OPENAI = 'OpenAI (ChatGPT)'
 CLAUDE = 'Anthropic (Claude)'
 GEMINI = 'Google (Gemini)'
 PROVIDERS = (OPENAI, CLAUDE, GEMINI, OFFLINE)
-MODELS = {OPENAI: 'gpt-5-mini', CLAUDE: 'claude-haiku-5-5', GEMINI: 'gemini-3.5-flash-lite', OFFLINE: ''}
+MODELS = {OPENAI: 'gpt-6-luna', CLAUDE: 'claude-haiku-5-5', GEMINI: 'gemini-3.5-flash-lite', OFFLINE: ''}
 KEY_ENV = {OPENAI: 'OPENAI_API_KEY', CLAUDE: 'ANTHROPIC_API_KEY', GEMINI: 'GEMINI_API_KEY'}
 LANGUAGES = ('English', 'Japanese')
 DEFAULT_EFFORT = 'Default'
@@ -27,6 +31,11 @@ EFFORTS = {
     OFFLINE: (DEFAULT_EFFORT,),
 }
 MAX_RESPONSE_BYTES = 512 * 1024
+MAX_REQUEST_BYTES = 8 * 1024 * 1024
+TRACE_REVIEW_TIMEOUT_SECONDS = 300
+# Reasoning counts against the output limit, and reading several traces takes
+# more of it than a short report does at any effort level.
+TRACE_REVIEW_TOKENS = 32768
 ANTHROPIC_VERSION = '2026-10-21'
 GEMINI_MODELS_URL = 'https://generativelanguage.googleapis.com/v1beta/models'
 
@@ -77,12 +86,13 @@ class ReviewPreferences:
             raw = json.loads(self.path.read_text(encoding='utf-8'))
             fields = {'provider', 'model', 'language'}
             if isinstance(raw, dict) and set(raw) in (fields, fields | {'effort'}):
+                raw['provider'] = LEGACY_PROVIDERS.get(raw['provider'], raw['provider'])
                 settings = ReviewSettings(**raw)
                 settings.validate()
                 return settings
         except (OSError, ValueError, TypeError, RecursionError):
             pass
-        return ReviewSettings()
+        return ReviewSettings(OFFLINE, MODELS[OFFLINE])
 
     def save(self, settings):
         settings.validate()
@@ -100,20 +110,23 @@ class NoRedirect(HTTPRedirectHandler):
         return None
 
 
-def _request(url, headers, payload=None):
+def _request(url, headers, payload=None, *, timeout=60):
     if payload is None:
         request = Request(url, headers=headers)
     else:
-        request = Request(url, data=json.dumps(payload, allow_nan=False).encode('utf-8'),
+        body = json.dumps(payload, allow_nan=False).encode('utf-8')
+        if len(body) > MAX_REQUEST_BYTES:
+            raise ReviewError('The AI review request exceeds the request size limit.')
+        request = Request(url, data=body,
                           headers={**headers, 'Content-Type': 'application/json'}, method='POST')
     try:
-        with build_opener(NoRedirect()).open(request, timeout=60) as response:
+        with build_opener(NoRedirect()).open(request, timeout=timeout) as response:
             data = response.read(MAX_RESPONSE_BYTES + 1)
     except HTTPError as exc:
         exc.close()
         hints = {
             400: 'Check the model ID and reasoning effort. Try Default effort if the model rejects the selected level.',
-            401: 'Check the API key in MCP Settings.',
+            401: 'Check the API key in AI Review Settings.',
             402: 'Check the billing or credit balance for the API account.',
             403: 'The API key may not have access to this model.',
             404: 'Check that the model ID is available to this API account.',
@@ -121,7 +134,12 @@ def _request(url, headers, payload=None):
         }
         raise ReviewError(f'Provider returned HTTP {exc.code}. '
                           + hints.get(exc.code, 'Try again later or check the provider status.')) from None
-    except (URLError, OSError):
+    except (URLError, OSError) as exc:
+        reason = exc.reason if isinstance(exc, URLError) else exc
+        if isinstance(reason, TimeoutError):
+            raise ReviewError('The provider request timed out before the review completed.') from None
+        if isinstance(reason, gaierror):
+            raise ReviewError('Could not look up the provider address. Check your internet connection.') from None
         raise ReviewError('Could not reach the provider. Check the internet connection and try again.') from None
     if len(data) > MAX_RESPONSE_BYTES:
         raise ReviewError('The provider response was too large.')
@@ -131,8 +149,8 @@ def _request(url, headers, payload=None):
         raise ReviewError('The provider returned an unreadable response.') from None
 
 
-def _post(url, headers, payload):
-    return _request(url, headers, payload)
+def _post(url, headers, payload, **options):
+    return _request(url, headers, payload, **options)
 
 
 def _catalog_pages(url, headers, *, rows_key, cursor_key, query_key, page_size, more_key=None):
@@ -198,17 +216,20 @@ def list_models(settings):
     return list(dict.fromkeys(choices)) if provider == CLAUDE else sorted(set(choices), reverse=True)
 
 
-def _generate(settings, instructions, prompt):
+def _generate(settings, instructions, prompt, *, timeout=60, token_limit=None):
     settings.validate()
     key = settings.require_key()
     effort = settings.effort if settings.effort != DEFAULT_EFFORT else None
-    token_limit = 16384 if effort in ('high', 'xhigh', 'max') else 4096
+    if token_limit is None:
+        token_limit = 16384 if effort in ('high', 'xhigh', 'max') else 4096
+    request_options = {'timeout': timeout} if timeout != 60 else {}
     if settings.provider == OPENAI:
         payload = dict(model=settings.model, input=prompt, instructions=instructions,
                        store=False, max_output_tokens=token_limit)
         if effort:
             payload['reasoning'] = {'effort': effort}
-        result = _post('https://api.openai.com/v1/responses', {'Authorization': 'Bearer ' + key}, payload)
+        result = _post('https://api.openai.com/v1/responses', {'Authorization': 'Bearer ' + key},
+                       payload, **request_options)
         try:
             if result['status'] != 'completed':
                 raise ReviewError('OpenAI did not finish the report. Try again or select another model.')
@@ -222,7 +243,7 @@ def _generate(settings, instructions, prompt):
                        messages=[dict(role='user', content=prompt)])
         if effort:
             payload['output_config'] = {'effort': effort}
-        result = _post('https://api.anthropic.com/v1/messages', headers, payload)
+        result = _post('https://api.anthropic.com/v1/messages', headers, payload, **request_options)
         try:
             if result['stop_reason'] != 'end_turn':
                 raise ReviewError('Claude did not finish the report. Try again or select another model.')
@@ -240,7 +261,7 @@ def _generate(settings, instructions, prompt):
         result = _post(url, {'x-goog-api-key': key}, dict(
             systemInstruction=dict(parts=[dict(text=instructions)]),
             contents=[dict(role='user', parts=[dict(text=prompt)])],
-            generationConfig=generation))
+            generationConfig=generation), **request_options)
         try:
             candidate = result['candidates'][0]
             if candidate['finishReason'] != 'STOP':
@@ -259,116 +280,231 @@ def test_connection(settings):
     return _generate(settings, 'This is a connection test. Reply with the single word OK.', 'Connection test.')
 
 
-MAX_REPORT_IDS = 5
-REVIEW_BATCH_SIZE = 24
+WAVEFORM_BATCH_SIZE = 4
+WAVEFORM_WORKERS = 4
+REMOVE = '-'          # reply value for "this column holds no base"
+CALLS = ('A', 'C', 'G', 'T', REMOVE, 'N')
+CONFIDENCE = ('high', 'low')
+
+WAVEFORM_INSTRUCTIONS = (
+    'You read Sanger chromatograms the way an experienced curator does. Each site is one consensus '
+    'column that local rules could not settle. For every read that covers the column you receive '
+    'the aligned base calls (base, Phred) and the four-channel signal sampled along the scan axis. '
+    'Everything is already oriented to the consensus: x is the distance in scans from the column, '
+    'negative x lies toward the consensus start. Intensities are scaled per read so that 100 is the '
+    'typical height of a called peak near the site; compare heights only within one read. '
+    '"calls at x" gives where the base caller placed each call.\n\n'
+    'Decide what the column holds: A, C, G or T; "-" when it holds no base (a spurious call, or the '
+    'read with the gap is right); N when the signal does not settle it.\n\n'
+    'How to weigh the evidence:\n'
+    '1. A base is supported by a summit in its own channel near x=0 that stands above the other '
+    'channels at that scan. The rising or falling flank of a neighbouring peak is not a summit.\n'
+    '2. Reads are not equal. A read whose nearby calls have high Phred and evenly spaced, well '
+    'separated peaks outranks a read in a degraded stretch (broad merging peaks, falling Phred, '
+    'uneven spacing), whatever the Phred of the single call in the column.\n'
+    '3. When one read has a base and another has a gap, compare how many bases fit between the same '
+    'flanking calls in each read. In the read with the gap, flanking calls about one spacing apart '
+    'leave no room for another base; about two spacings apart, a base was probably missed. Prefer '
+    'the count from the read whose peaks in that stretch are individually resolved, with valleys '
+    'between summits.\n'
+    '4. The base caller usually counts the bases of a run correctly even where the peaks merge into '
+    'a plateau or sit closer than one spacing. In a column covered by a single read, do not answer '
+    '"-" because two calls share a broad peak. Answer "-" only when another read with resolved, '
+    'evenly spaced peaks shows there is no room for the base.\n'
+    '5. Low-Phred call in a single read: confirm the called base when its channel has a distinct '
+    'summit close to x=0 and no other channel has a summit of its own there above about half its '
+    'height. Two channels with comparable summits at the same place mean a mixed signal: answer N. '
+    'A different base may be called only when the called channel has no summit and exactly one other '
+    'channel has a clear one.\n'
+    '6. Use only the measurements given. Never infer a base from sequence patterns, motifs or '
+    'reading frames.\n\n'
+    'Give confidence "high" only when you would be surprised to be wrong; otherwise "low". '
+    'Return only the requested JSON, without commentary.'
+)
 
 
-def _id_list(response, key, allowed, *, count=None):
+@dataclass(frozen=True)
+class WaveformDecision:
+    call: str
+    confidence: str
+
+
+def _waveform_decisions(response, site_ids):
+    def unique_fields(pairs):
+        fields = dict(pairs)
+        if len(fields) != len(pairs):
+            raise ValueError('Duplicate JSON field.')
+        return fields
+
     fenced = re.fullmatch(r'```(?:json)?\s*(.*?)\s*```', response, flags=re.IGNORECASE | re.DOTALL)
     try:
-        value = json.loads(fenced[1] if fenced else response)
+        value = json.loads(fenced[1] if fenced else response, object_pairs_hook=unique_fields)
     except (ValueError, RecursionError):
-        return None
-    ids = value.get(key) if isinstance(value, dict) and set(value) == {key} else None
-    if (not isinstance(ids, list) or (count is not None and len(ids) != count)
-            or any(not isinstance(item, str) or item not in allowed for item in ids)
-            or len(set(ids)) != len(ids)):
-        return None
-    return tuple(ids)
+        value = None
+    rows = value.get('decisions') if isinstance(value, dict) and set(value) == {'decisions'} else None
+    if not isinstance(rows, list) or len(rows) != len(site_ids):
+        raise ReviewError('The model did not return a valid decision for every chromatogram site.')
+    decisions = {}
+    for row in rows:
+        if not isinstance(row, dict) or set(row) != {'id', 'call', 'confidence'}:
+            raise ReviewError('The model returned an invalid chromatogram site decision.')
+        site_id, call, confidence = row['id'], row['call'], row['confidence']
+        if (not isinstance(site_id, str) or site_id not in site_ids or site_id in decisions
+                or call not in CALLS or confidence not in CONFIDENCE):
+            raise ReviewError('The model returned an invalid or duplicate chromatogram site decision.')
+        decisions[site_id] = WaveformDecision(call, confidence)
+    return decisions
 
 
-def approve_base_candidates(settings, metrics):
-    """Allow the model to accept or abstain, using anonymous numeric evidence."""
-    accepted = set()
-    rows = [dict(id=f'P{index:05}', **row) for index, row in enumerate(metrics, 1)]
-    for start in range(0, len(rows), REVIEW_BATCH_SIZE):
-        batch = rows[start:start + REVIEW_BATCH_SIZE]
-        answer = _generate(settings,
-            'Review candidate calls for unresolved Sanger consensus positions. The local signal screen has '
-            'already selected the only eligible candidate. Accept when at least two independent aligned traces '
-            'have a strong centered peak in agreement, or one trace has an agreeing instrument call at '
-            'Phred 18 or better and a centered peak at least six times the next channel. '
-            'The peak ratio is relative to the next strongest channel; Phred 0 means no agreeing instrument score. '
-            'If uncertain, omit the ID. Return exactly one JSON object with the key "approved_ids" and '
-            'a list of distinct IDs from this batch. Do not provide bases or prose.',
-            json.dumps(batch, allow_nan=False))
-        allowed = {row['id'] for row in batch}
-        ids = _id_list(answer, 'approved_ids', allowed)
-        if ids is None:
-            raise ReviewError('The model did not return valid base review decisions.')
-        accepted.update(int(identifier[1:]) - 1 for identifier in ids)
-    return accepted
+def review_waveforms(settings, count, evidence, *, on_batch_done=None, is_cancelled=None):
+    """Review every site using text evidence with a bounded number of requests in flight.
+
+    Returns ``{site index: WaveformDecision}``. The caller decides which
+    decisions to apply; nothing here changes a project.
+    """
+    if type(count) is not int or count < 0:
+        raise ValueError('Chromatogram site count must be a non-negative integer.')
+    if count and settings.provider == OFFLINE:
+        raise ReviewError('Select an online model to review chromatogram evidence.')
+
+    def check_cancelled():
+        if is_cancelled is not None and is_cancelled():
+            raise ReviewError('Chromatogram review cancelled.')
+
+    total_batches = (count + WAVEFORM_BATCH_SIZE - 1) // WAVEFORM_BATCH_SIZE
+    starts = iter(range(0, count, WAVEFORM_BATCH_SIZE))
+    results = Queue()
+    decisions = {}
+    pending = completed = 0
+
+    def request(site_ids, prompt):
+        try:
+            check_cancelled()
+            reply = _generate(settings, WAVEFORM_INSTRUCTIONS, prompt, timeout=TRACE_REVIEW_TIMEOUT_SECONDS,
+                              token_limit=TRACE_REVIEW_TOKENS)
+            batch = {site_ids[site_id]: decision
+                     for site_id, decision in _waveform_decisions(reply, site_ids).items()}
+        except Exception as exc:
+            results.put((None, exc))
+        else:
+            results.put((batch, None))
+
+    def start_batch(start):
+        site_ids = {f'P{index + 1:05}': index for index in range(start, min(start + WAVEFORM_BATCH_SIZE, count))}
+        entries = []
+        for site_id, index in site_ids.items():
+            check_cancelled()
+            text = evidence(index)
+            if not isinstance(text, str) or not text.strip():
+                raise ReviewError('Could not prepare chromatogram evidence for every requested site.')
+            entries.append(f'Site {site_id}\n{text}')
+        check_cancelled()
+        example = json.dumps({'decisions': [{'id': next(iter(site_ids)), 'call': 'N', 'confidence': 'low'}]},
+                             separators=(',', ':'))
+        prompt = (f'Return JSON shaped like {example} with one entry for each site ID below, exactly once. '
+                  '"call" is A, C, G, T, - or N. "confidence" is high or low.\n\n'
+                  + '\n\n'.join(entries))
+        Thread(target=request, args=(site_ids, prompt), daemon=True).start()
+
+    while completed < total_batches:
+        check_cancelled()
+        while pending < WAVEFORM_WORKERS:
+            start = next(starts, None)
+            if start is None:
+                break
+            start_batch(start)
+            pending += 1
+        try:
+            batch, error = results.get(timeout=0.25)
+        except Empty:
+            continue
+        pending -= 1
+        if error is not None:
+            raise error
+        decisions.update(batch)
+        completed += 1
+        if on_batch_done is not None:
+            on_batch_done(completed, total_batches, len(decisions))
+        check_cancelled()
+    return decisions
 
 
-def prioritize_contigs(settings, summary):
-    """Ask the model only for review order. The app owns all facts and wording."""
-    if settings.provider == OFFLINE or not summary['contigs_total']:
-        return ()
-    flagged = {row['id'] for row in summary['contigs'] if row['review_flags']}
-    count = min(MAX_REPORT_IDS, len(flagged))
-    response = _generate(settings,
-        'Prioritize Sanger contigs for human review using only the provided quality metrics. '
-        f'Return exactly one JSON object with the single key "priority_ids" and an array of {count} '
-        'distinct contig IDs, highest priority first. Choose only IDs with review_flags above zero. '
-        'Give preference to stale contigs, more flags and weak support. Do not include any prose, '
-        'counts, base calls, or claims about accuracy.',
-        json.dumps(summary, allow_nan=False))
-    ids = _id_list(response, 'priority_ids', flagged, count=count)
-    if ids is None:
-        raise ReviewError('The model did not return a valid review order.')
-    return ids
+def _format_review(review, model, *, online, japanese):
+    """Summarize the local and model decisions and the total removals."""
+    sites, local, removed = review['sites'], review['local_resolved'], review['removed']
+    sent, settled = review['sent'], review['model_resolved']
+    if japanese:
+        if not sites:
+            return '自動レビューの対象はありませんでした。' + ('AIへの送信はありません。' if online else '')
+        text = f'ローカル波形ルール：フラッグ{sites}箇所のうち{local}箇所を確定。'
+        removals = f'余分な塩基を合計{removed}箇所削除しました。' if removed else ''
+        if not online:
+            return text + removals
+        if not sent:
+            return text + 'AIへの送信はありません。' + removals
+        if not review['completed']:
+            return text + (f'{model}：残り{sent}箇所のうち{review["replied"]}箇所で応答したところで中断。'
+                           'AIの判定は反映していません。') + removals
+        return text + f'{model}：残り{sent}箇所を確認し、{settled}箇所を確定。' + removals
+
+    def amount(number, noun):
+        return f'{number} {noun}' + ('' if number == 1 else 's')
+
+    if not sites:
+        return 'No flagged columns were eligible for automatic review.' + (' No API request was sent.' if online else '')
+    text = f'Local trace rules settled {local} of {amount(sites, "flagged column")}.'
+    removals = f' Removed {amount(removed, "extra base")} in total.' if removed else ''
+    if not online:
+        return text + removals
+    if not sent:
+        return text + ' No API request was sent.' + removals
+    if not review['completed']:
+        return text + (f' [{model}] replied for {review["replied"]} of the other {sent} before the review stopped. '
+                       'No model decisions were applied.') + removals
+    return text + f' {model} reviewed the other {sent} and settled {settled}.' + removals
 
 
-def ordered_contigs(rows, priority):
-    rank = {identifier: index for index, identifier in enumerate(priority)}
-    return sorted(rows, key=lambda row: rank.get(row['id'], len(rank)))
-
-
-def format_report(settings, summary, priority=(), *, failure=False):
+def format_report(settings, summary, *, failure=None):
     """Format measured counts and existing flags, including when the API fails."""
     reads, used, built = (summary[k] for k in ('reads', 'reads_used', 'new_contigs'))
     total, unused, single, failed = (summary[k] for k in
         ('contigs_total', 'unassembled_reads', 'single_read_contigs', 'failed_groups'))
-    flags, flagged, stale = (summary[k] for k in ('review_flags', 'flagged_contigs', 'stale_contigs'))
-    red, replaced = summary.get('red_flags', 0), summary.get('replaced_n', 0)
+    flags, stale = (summary[k] for k in ('review_flags', 'stale_contigs'))
+    red = summary.get('red_flags', 0)
     trimmed = summary['fully_trimmed_reads']
-    targets = [r['id'] for r in ordered_contigs(summary['contigs'], priority)
-               if r['review_flags']][:MAX_REPORT_IDS]
-    more = flagged - len(targets)
-    online = settings.provider != OFFLINE and not failure
-    model_label = settings.model if settings.effort == DEFAULT_EFFORT else f'{settings.model} / {settings.effort}'
+    model_label = settings.model if settings.effort == DEFAULT_EFFORT else f'{settings.model} ({settings.effort})'
+    counts = summary.get('review')
+    base_report = (_format_review(counts, model_label, online=settings.provider != OFFLINE,
+                                  japanese=settings.language == 'Japanese')
+                   if counts is not None else None)
 
     if settings.language == 'Japanese':
         if built:
-            assembly = f'受け取った{reads}本のリードのうち{used}本を使い、{built}件のコンティグを作成しました。'
+            assembly = f'{reads}本のリードのうち{used}本を使い、{built}件のコンティグを作成しました。'
         elif total:
-            assembly = f'読み込み済みの{reads}本を対象にしました。新規作成はなく、既存の{total}件を確認しました。'
+            assembly = f'既存の{total}コンティグを確認しました。'
         else:
             assembly = f'{reads}本のリードを受け取りましたが、コンティグを作成できませんでした。'
         notes = []
         if unused:
-            detail = f'（うちトリミング後に塩基が残らなかったもの{trimmed}本）' if trimmed else ''
-            notes.append(f'未組み立てリード{unused}本{detail}')
+            detail = ('（トリミング後に塩基なし）' if trimmed == unused else
+                      f'（うち{trimmed}本はトリミング後に塩基なし）' if trimmed else '')
+            notes.append(f'未組み立て{unused}本{detail}')
         if single:
             notes.append(f'単一リードのコンティグ{single}件')
-        if failed:
+        if failed and trimmed != unused:
             notes.append(f'組み立て失敗{failed}グループ')
-        assembly += '、'.join(notes) + 'がありました。' if notes else '未組み立てリードや単一リードのコンティグはありませんでした。'
+        if notes:
+            assembly += '、'.join(notes) + '。'
         if not total:
-            return assembly
-        lead = f'[{model_label}] で品質を確認しました。' if online else ''
-        if 'replaced_n' in summary:
-            lead += f'Nを{replaced}か所、自動で置換しました。'
+            return '\n'.join(line for line in (assembly, failure) if line)
         if flags:
-            ids = '、'.join(targets) + (f'（ほか{more}件）' if more else '')
-            review = f'コンティグ {ids} の計{flags}か所を手動で確認してください。［Open Contig］でクロマトグラムを表示できます。'
-            if red:
-                review += f'赤いフラッグ{red}か所は、AIレビュー後もNのままです。優先して確認してください。'
+            warning = f'赤フラッグ{red}箇所' if red == flags else f'{flags}箇所（うち赤フラッグ{red}箇所）' if red else f'{flags}箇所'
+            review = f'要確認：{warning}。表のコンティグ名をクリックすると波形を表示します。'
         else:
-            review = '塩基のレビューフラグはありません。' if stale or single or unused or failed else '手動確認が必要な警告はありません。'
+            review = '手動確認が必要な塩基のフラッグはありません。' if stale or single or unused or failed else '手動確認が必要な警告はありません。'
         if stale:
             review += f'再組み立てが必要なコンティグが{stale}件あります。'
-        fallback = '\nAIレビューの一部を完了できませんでした。端末内の結果を表示しています。' if failure else ''
     else:
         def amount(number, noun):
             return f'{number} {noun}' + ('' if number == 1 else 's')
@@ -385,22 +521,18 @@ def format_report(settings, summary, priority=(), *, failure=False):
             notes.append(amount(unused, 'unassembled read') + detail)
         if single:
             notes.append(amount(single, 'single-read contig'))
-        if failed:
+        if failed and trimmed != unused:
             notes.append(amount(failed, 'failed group'))
-        assembly += ' ' + ('Found ' + ', '.join(notes) + '.' if notes else 'No unassembled reads or single-read contigs.')
+        if notes:
+            assembly += ' ' + ', '.join(notes).capitalize() + '.'
         if not total:
-            return assembly
-        lead = f'[{model_label}] reviewed quality. ' if online else ''
-        if 'replaced_n' in summary:
-            lead += f'Automatically replaced N at {amount(replaced, "site")}. '
+            return '\n'.join(line for line in (assembly, failure) if line)
         if flags:
-            ids = ', '.join(targets) + (f' (+{more} more)' if more else '')
-            review = f'Manually check {amount(flags, "flagged site")} in {ids}. Choose Open Contig to view the chromatogram.'
-            if red:
-                review += f' Check the {amount(red, "red flag")} first. These sites are still N after AI review.'
+            warning = (amount(red, 'red flag') if red == flags else
+                       f'{amount(flags, "site")} ({amount(red, "red flag")})' if red else amount(flags, 'site'))
+            review = f'To review: {warning}. Click a contig name to view the trace.'
         else:
-            review = 'No base review flags.' if stale or single or unused or failed else 'No warnings require manual review.'
+            review = 'No base flags require manual review.' if stale or single or unused or failed else 'No warnings require manual review.'
         if stale:
             review += f' Rebuild required for {amount(stale, "contig")}.'
-        fallback = '\nPart of the AI review could not be completed. See Details.' if failure else ''
-    return assembly + '\n\n' + lead + review + fallback
+    return '\n'.join(line for line in (assembly, base_report, review, failure) if line)

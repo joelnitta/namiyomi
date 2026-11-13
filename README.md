@@ -1,17 +1,17 @@
-# namiyomi ver 0.1.0
+# namiyomi ver 0.2.0
 
 A focused desktop editor for Sanger sequencing: inspect AB1 chromatograms, trim read ends, assemble selected reads, review the consensus, and export FASTA.
 
-namiyomi keeps the sequence and its supporting traces in one workspace. It is designed for routine, small-scale Sanger work rather than as an integrated bioinformatics suite. Its features are **deliberately limited to what this work needs**, so there is little to configure or learn before you start. All sequence processing takes place locally. The application and source code are free under the MIT License.
+namiyomi keeps the sequence and its supporting traces in one workspace. It is designed for routine, small-scale Sanger work rather than as an integrated bioinformatics suite. Its features are **deliberately limited to what this work needs**, so there is little to configure or learn before you start. Assembly and editing run locally. Online AI review is optional. The application and source code are free under the MIT License.
 
 ## Download namiyomi here
 
-- **[Download for macOS — Apple Silicon, macOS 15+](https://github.com/yoneoka-katsuhiro/namiyomi/releases/download/v0.1.0/namiyomi-0.1.0-macOS-arm64-development.zip)**
-- **[Download for Windows — Windows 10/11 x64, experimental](https://github.com/yoneoka-katsuhiro/namiyomi/releases/download/v0.1.0/namiyomi-0.1.0-Windows-x64.zip)**
+- **[Download for macOS — Apple Silicon, macOS 15+](https://github.com/yoneoka-katsuhiro/namiyomi/releases/download/v0.2.0/namiyomi-0.2.0-macOS-arm64-development.zip)**
+- **[Download for Windows — Windows 10/11 x64, experimental](https://github.com/yoneoka-katsuhiro/namiyomi/releases/download/v0.2.0/namiyomi-0.2.0-Windows-x64.zip)**
 
 These ZIPs contain the ready-to-run application. No Python installation is required. The files in the repository are for developers; you do not need to download them to use namiyomi.
 
-[Release notes](https://github.com/yoneoka-katsuhiro/namiyomi/releases/tag/v0.1.0) · [日本語](README-ja.md) · [Build and distribution guide](DISTRIBUTION.md)
+[Release notes](https://github.com/yoneoka-katsuhiro/namiyomi/releases/tag/v0.2.0) · [日本語](README-ja.md) · [Build and distribution guide](DISTRIBUTION.md)
 
 ![The consensus sequence above its aligned source chromatograms in namiyomi on macOS. The displayed data are synthetic.](docs/images/namiyomi-contig-macos.png)
 
@@ -21,18 +21,16 @@ These ZIPs contain the ready-to-run application. No Python installation is requi
 
 | Package | System | Release status |
 | --- | --- | --- |
-| `namiyomi-0.1.0-macOS-arm64-development.zip` | Apple Silicon, macOS 15 or later | Tested on the developer's Mac. Ad-hoc signed; not Developer ID signed or Apple notarized. Not an Intel or universal build. |
-| `namiyomi-0.1.0-Windows-x64.zip` | Windows 10/11, x64 | Experimental. Full hands-on testing on a physical Windows PC has not been completed. Errors may occur. |
+| `namiyomi-0.2.0-macOS-arm64-development.zip` | Apple Silicon, macOS 15 or later | Tested on the developer's Mac. Ad-hoc signed; not Developer ID signed or Apple notarized. Not an Intel or universal build. |
+| `namiyomi-0.2.0-Windows-x64.zip` | Windows 10/11, x64 | Experimental. Full hands-on testing on a physical Windows PC has not been completed. Errors may occur. |
 
 Download the appropriate ZIP from [Releases](https://github.com/yoneoka-katsuhiro/namiyomi/releases). Standalone packages include Python and their dependencies; a separate Python installation is not required.
-
-The compressed downloads are approximately **41 MiB for macOS** and **26 MiB for Windows**, including the runtime and synthetic demo. These are package sizes, not memory-use or performance benchmarks.
 
 **macOS:** extract the ZIP, open its `namiyomi` folder, then open `namiyomi.app`. You can move the application to an Applications folder if desired; keep the separate `demo` folder if you want to try the example project. This is an unnotarized development release. macOS may warn about or block the application; the package has not received Apple's notarization. See [Apple's explanation of Developer ID](https://developer.apple.com/developer-id/) before deciding whether to run it. Do not disable system security protections to install namiyomi.
 
 **Windows:** extract the complete `namiyomi` folder, then open `namiyomi.exe`. Keep the `_internal` folder beside the executable; do not copy the executable out on its own. The executable is not Authenticode signed, so Windows may display a security warning. The Windows build workflow uses Windows Server 2022 for automated build and startup checks; consult [Actions](https://github.com/yoneoka-katsuhiro/namiyomi/actions) for the outcome of each run. Those checks do not replace hands-on testing of the complete workflow on Windows 10/11.
 
-Version 0.1.0 is an early release. Back up your AB1 files and projects, and check exported sequences before using them in an analysis.
+Version 0.2.0 is an early release. Back up your AB1 files and projects, and check exported sequences before using them in an analysis.
 
 ## What namiyomi does
 
@@ -68,11 +66,25 @@ If an assembly needs to be redone, right-click its contig and choose **Return Re
 
 Use AUTO only when each prefix identifies one specimen **and one locus**. Reads already used by an existing manual or AUTO contig are excluded, and existing contigs are not rebuilt. Use the manual command when filenames do not follow this convention. A single-read group can form a contig, but it does not provide independent multi-read confirmation.
 
-### Optional MCP review and command-line batch processing
+### AI Review: what happens to a flagged base
 
-On the source branch with MCP, choose **MCP > Settings** to configure OpenAI, Claude, Gemini or the **Offline preview**. **MCP > Full auto mode by LLM** assembles unassigned reads locally and opens a quality report. The online options send quality counts and anonymous contig IDs; sequences, traces and filenames stay on the device. The report does not edit calls or mark flags as reviewed. The original v0.1.0 downloads do not include the MCP menu.
+1. Open **AI Review > Review Start**. namiyomi assembles unassigned reads by filename prefix and checks eligible flags against the original AB1 signal on your device. If the trace supports a clear decision, it can set a base or remove an extra call. **This device only** runs this step without an API key.
+2. To review the remaining eligible flags with AI, choose **OpenAI**, **Claude**, or **Gemini** in **AI Review > Settings**. Choose the model and reasoning effort, then configure your provider API key. The model receives nearby base calls, Phred scores, and a short sample of the four signal channels. AB1 files, waveform images, sample names, filenames, and absolute positions stay on your device.
+3. The model can propose a base, propose removing the call, or leave it unresolved. namiyomi applies a confident answer only when the trace supports it. A single read cannot justify deleting a call. Explicitly reviewed or edited sites and flagged IUPAC double peaks stay available for manual review as appropriate.
 
-The source also includes a local batch command for folder-based assembly and FASTA export, with optional CSV grouping. See the [MCP and batch guide](docs/BATCH.md) for setup and examples.
+![The AI Review settings dialog with This device only selected and no API key.](docs/images/namiyomi-ai-settings-macos.png)
+
+![The AI Review Report for synthetic reads, showing contig names and remaining flag counts.](docs/images/namiyomi-ai-report-macos.png)
+
+Click a contig in the report to open its flagged waveform. Click again to cycle through its red flags. A red flag means the online model reviewed the site and left it unresolved. A black flag can mark an open site or preserve the original AUTO flag after a correction. A teal underline marks a correction. **Edit > Undo** reverses the assembly and review together. [Trace rules, examples, and benchmark limits](docs/TRACE_REVIEW.md)
+
+### MCP: ask an external client for a saved project's quality summary
+
+MCP is optional. **Review Start** works entirely from the namiyomi menu. If you use an external MCP client, configure it to launch `src/mcp_server.py` with `--project` and the path to one saved project. Then ask the client for `get_quality_summary`, for example: “How many contigs still have review flags?” The tool returns anonymous counts, not the project or its waveforms, and cannot edit or export a sequence. Restart the server after saving to refresh the summary. The client determines what it forwards to its own model.
+
+![A local MCP request calling get_quality_summary and its response, showing anonymous counts from the synthetic demo.](docs/images/namiyomi-mcp-summary.png)
+
+The [batch and MCP guide](docs/BATCH.md) includes the MCP configuration and the optional batch command for assembly, review, and FASTA export.
 
 ### Find a sequence on either strand
 
@@ -123,7 +135,7 @@ namiyomi is released under the [MIT License](LICENSE.txt). Bundled dependencies 
 
 Suggested citation:
 
-> Yoneoka, K. (2026). *Namiyomi: Sanger chromatogram review and contig assembly* (Version 0.1.0) [Computer software]. GitHub. https://github.com/yoneoka-katsuhiro/namiyomi
+> Yoneoka, K. (2026). *Namiyomi: Sanger chromatogram review and contig assembly* (Version 0.2.0) [Computer software]. GitHub. https://github.com/yoneoka-katsuhiro/namiyomi
 
 In text, cite **Yoneoka (2026)** or **(Yoneoka, 2026)**.
 

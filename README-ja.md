@@ -1,17 +1,17 @@
-# namiyomi ver 0.1.0
+# namiyomi ver 0.2.0
 
 **AB1の波形確認から、トリミング、コンティグ作成、配列編集、FASTA出力まで。**
 
-namiyomiは、日常的なサンガーシーケンスの確認作業に用途を絞ったデスクトップアプリです。**機能はこの作業に必要な最小限に絞っている**ため、使い始める前に設定することや覚えることがほとんどありません。コンセンサス配列と、その根拠となるクロマトグラムを同じ画面で確認できます。配列データは端末内で処理され、外部には送信されません。アプリとソースコードはMITライセンスで無償公開しています。
+namiyomiは、日常的なサンガーシーケンスの確認作業に用途を絞ったデスクトップアプリです。**機能はこの作業に必要な最小限に絞っている**ため、使い始める前に設定することや覚えることがほとんどありません。コンセンサス配列と、その根拠となるクロマトグラムを同じ画面で確認できます。組み立てと編集は端末内で行います。オンラインAIレビューは任意です。アプリとソースコードはMITライセンスで無償公開しています。
 
 ## ここからアプリをダウンロードできます
 
-- **[macOS版をダウンロード — Apple Silicon、macOS 15以降](https://github.com/yoneoka-katsuhiro/namiyomi/releases/download/v0.1.0/namiyomi-0.1.0-macOS-arm64-development.zip)**
-- **[Windows版をダウンロード — Windows 10/11 x64、試験版](https://github.com/yoneoka-katsuhiro/namiyomi/releases/download/v0.1.0/namiyomi-0.1.0-Windows-x64.zip)**
+- **[macOS版をダウンロード — Apple Silicon、macOS 15以降](https://github.com/yoneoka-katsuhiro/namiyomi/releases/download/v0.2.0/namiyomi-0.2.0-macOS-arm64-development.zip)**
+- **[Windows版をダウンロード — Windows 10/11 x64、試験版](https://github.com/yoneoka-katsuhiro/namiyomi/releases/download/v0.2.0/namiyomi-0.2.0-Windows-x64.zip)**
 
 このZIPに、すぐに起動できるアプリが入っています。Pythonのインストールは不要です。リポジトリ内のソースやテストを個別にダウンロードする必要はありません。
 
-[リリース情報](https://github.com/yoneoka-katsuhiro/namiyomi/releases/tag/v0.1.0) · [English](README.md) · [ビルド・配布について](DISTRIBUTION.md)
+[リリース情報](https://github.com/yoneoka-katsuhiro/namiyomi/releases/tag/v0.2.0) · [English](README.md) · [ビルド・配布について](DISTRIBUTION.md)
 
 ![コンセンサス配列と、位置を揃えて表示した元リードのクロマトグラム。macOS版の画面。表示データは人工的に生成したものです。](docs/images/namiyomi-contig-macos.png)
 
@@ -21,18 +21,16 @@ namiyomiは、日常的なサンガーシーケンスの確認作業に用途を
 
 | 配布ファイル | 対象 | 確認状況 |
 | --- | --- | --- |
-| `namiyomi-0.1.0-macOS-arm64-development.zip` | Apple Silicon、macOS 15以降 | 開発者のMacで動作を確認しています。アドホック署名の開発版で、Developer ID署名・Apple公証はありません。Intel版・Universal版ではありません。 |
-| `namiyomi-0.1.0-Windows-x64.zip` | Windows 10/11、x64 | 試験公開です。実際のWindows PCによる、インポートから編集・保存・出力までの一連の操作確認は完了していません。エラーが出る可能性があります。 |
+| `namiyomi-0.2.0-macOS-arm64-development.zip` | Apple Silicon、macOS 15以降 | 開発者のMacで動作を確認しています。アドホック署名の開発版で、Developer ID署名・Apple公証はありません。Intel版・Universal版ではありません。 |
+| `namiyomi-0.2.0-Windows-x64.zip` | Windows 10/11、x64 | 試験公開です。実際のWindows PCによる、インポートから編集・保存・出力までの一連の操作確認は完了していません。エラーが出る可能性があります。 |
 
 [Releases](https://github.com/yoneoka-katsuhiro/namiyomi/releases)から使用するOSのZIPをダウンロードしてください。Pythonと必要なライブラリは同梱しているため、別途インストールする必要はありません。
-
-圧縮した配布ファイルは、実行環境と合成デモを含めて**macOS版が約41 MiB、Windows版が約26 MiB**です。これはダウンロード容量であり、メモリ使用量や処理速度の比較値ではありません。
 
 **macOS：** ZIPを展開して`namiyomi`フォルダを開き、`namiyomi.app`を起動します。必要に応じてアプリをApplicationsフォルダへ移しても構いません。デモを試す場合は、別に入っている`demo`フォルダも残してください。未公証の開発版のため、Macで警告や起動制限が出る場合があります。Appleの公証を受けたアプリではありません。[Developer IDについてのApple公式説明](https://developer.apple.com/developer-id/)も確認し、実行するかどうかを判断してください。インストールのためにシステムのセキュリティ保護を無効にしないでください。
 
 **Windows：** `namiyomi`フォルダ全体を展開し、`namiyomi.exe`を開きます。`_internal`フォルダは実行ファイルの隣に置き、実行ファイルだけを取り出さないでください。Authenticode署名はないため、Windowsでセキュリティ警告が出る場合があります。Windows用の自動ビルド・起動確認にはWindows Server 2022を使用します。各実行の結果は[Actions](https://github.com/yoneoka-katsuhiro/namiyomi/actions)で確認できますが、Windows 10/11実機での一連の操作確認に代わるものではありません。
 
-ver 0.1.0は初期リリースです。元のAB1とプロジェクトをバックアップし、出力配列を確認してから解析に使用してください。
+ver 0.2.0は初期リリースです。元のAB1とプロジェクトをバックアップし、出力配列を確認してから解析に使用してください。
 
 ## できること
 
@@ -68,11 +66,25 @@ ver 0.1.0は初期リリースです。元のAB1とプロジェクトをバッ�
 
 AUTOは、各接頭辞が「同一個体の同一領域」を表す場合だけ使用してください。既存コンティグで使われているリードは対象から外れ、手動作成済みのコンティグも再構築しません。命名規則が異なるデータにはmanualを使います。1本だけのグループからもコンティグを作れますが、複数リードによる独立した裏付けにはなりません。
 
-### MCPによる品質レビューとバッチ処理
+### AI Reviewで塩基をどう確認するか
 
-MCP対応版では、上部の **MCP > Settings** でOpenAI、Claude、Gemini、または **Offline preview** を選べます。**MCP > Full auto mode by LLM > OK** で未使用リードを端末内で組み立て、品質レポートを表示します。オンライン接続時に送るのは品質指標と匿名のコンティグIDで、配列・波形・ファイル名は送信しません。レポートによって塩基やレビュー済みフラグが変わることはありません。初回公開のv0.1.0にはMCPメニューはありません。
+1. **AI Review > Review Start** を開きます。未使用のリードをファイル名の接頭辞で組み立て、確認対象のフラッグを元のAB1波形と照合します。端末内のルールは、根拠が明瞭なときに塩基を確定し、余分なコールを削除する場合もあります。**This device only** ならAPIキーは不要です。
+2. 残った確認対象をAIにも見せる場合は、**AI Review > Settings** で **OpenAI、Claude、Gemini** のいずれかを選び、モデル、推論レベル、APIキーを設定します。送るのは、前後の塩基、Phred値、波形の4色の信号を切り出した数値です。AB1ファイル、波形画像、試料名、ファイル名、配列上の絶対位置は端末に残ります。
+3. AIは塩基の候補、余分なコールの削除、または保留を返します。確信度が高く、実際の波形も支持するときに反映します。リード1本だけを根拠にコールは削除しません。手動で編集・確認済みの箇所や、二重ピークとして記録したIUPACコードは自動で上書きしません。
 
-ソースからは、AB1フォルダをまとめて解析してFASTAを出力するコマンドも利用できます。CSVによるグループ指定にも対応しています。設定とコマンド例は[利用ガイド（英語）](docs/BATCH.md)を参照してください。
+![AI Reviewの設定画面。This device onlyではAPIキーなしで実行できます。](docs/images/namiyomi-ai-settings-macos.png)
+
+![合成デモのAI Review Report。コンティグ名と要確認フラッグ数が表示されています。](docs/images/namiyomi-ai-report-macos.png)
+
+レポートのコンティグ名をクリックすると、確認箇所の波形が開きます。同じ行をクリックするたびに赤フラッグを順に移動します。赤はAIに確認しても未解決の箇所です。黒は未確認の箇所と、修正後に残るAUTOの履歴を示します。修正箇所には青緑の下線が付きます。**Edit > Undo** で組み立てと判定を一緒に取り消せます。[波形ルールと検証の範囲（英語）](docs/TRACE_REVIEW.md)
+
+### MCPで保存済みプロジェクトの品質を外部クライアントから確認する
+
+MCPは任意です。namiyomiの **Review Start** はMCPを設定せずに使えます。MCPを使う場合は、対応クライアントに `src/mcp_server.py` と `--project 保存済みプロジェクトのパス` を設定します。接続後は「要確認フラッグが残っているコンティグはいくつ？」と尋ねると、`get_quality_summary` で匿名の集計値を取得できます。MCPから配列の編集や出力はできません。保存内容を集計に反映するには、サーバーを再起動します。集計値を外部のモデルに渡すかどうかはクライアントの設定によります。
+
+![合成デモを対象にMCPのget_quality_summaryを呼び出し、匿名の件数を受け取った画面。](docs/images/namiyomi-mcp-summary.png)
+
+[一括処理・MCP設定ガイド（英語）](docs/BATCH.md)に接続設定例と、AB1の一括組み立て・レビュー・FASTA出力の手順があります。
 
 ### 配列を検索する
 
@@ -123,7 +135,7 @@ namiyomiの役割は1つです。AB1の波形を確認し、コンティグを�
 
 引用例：
 
-> Yoneoka, K. (2026). *Namiyomi: Sanger chromatogram review and contig assembly* (Version 0.1.0) [Computer software]. GitHub. https://github.com/yoneoka-katsuhiro/namiyomi
+> Yoneoka, K. (2026). *Namiyomi: Sanger chromatogram review and contig assembly* (Version 0.2.0) [Computer software]. GitHub. https://github.com/yoneoka-katsuhiro/namiyomi
 
 本文中では **Yoneoka (2026)**、括弧内では **(Yoneoka, 2026)** と表記します。
 

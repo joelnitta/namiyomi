@@ -8,6 +8,11 @@ resulting contigs and writes outputs (always to a separate output directory).
 Run from the command line::
 
     python src/batch.py --input DIR --output DIR [--sheet sheet.csv] [--dry-run]
+    python src/batch.py --input DIR --output DIR --review [--ai-provider openai --ai-model MODEL]
+
+``--review`` settles flagged columns with the local trace rules. Adding an
+``--ai-provider`` also sends the columns that remain to that provider, using
+the API key in its environment variable.
 """
 import argparse
 import csv
@@ -210,6 +215,43 @@ def _export(project, rows, output_dir, allow_single):
     return export_markers(SimpleNamespace(contigs=keep), output_dir, allow_single=True), skipped, sorted(invalid)
 
 
+def review_project(project, config=None):
+    """Settle open flags with the local trace rules, then optionally an online model.
+
+    Returns ``(outcome, rows, failure)``; rows describe every reviewed column for review.tsv.
+    """
+    from auto_review import local_review, model_review
+    from llm_review import OFFLINE, ReviewError
+    from waveform_review import review_sites
+    sites = review_sites(project)
+    outcome, remaining = local_review(project)
+    failure = None
+    if config is not None and config.provider != OFFLINE and remaining:
+        try:
+            model_review(project, remaining, config, outcome)
+        except (ReviewError, ValueError) as exc:
+            failure = str(exc)
+    rows = []
+    for site in sites:
+        contig = project.contigs[site.contig]
+        key = str(site.column)
+        decision = contig.ai_review.get(key, 'N')
+        rows.append(dict(name=contig.sequence_name, position=site.column + 1,
+                         consensus=contig.columns[site.column].call, flag=contig.columns[site.column].reason,
+                         decision='unresolved' if decision == 'N' else decision or 'remove',
+                         note=contig.ai_notes.get(key, '')))
+    return outcome, rows, failure
+
+
+def review_tsv(rows):
+    output = io.StringIO()
+    writer = csv.writer(output, delimiter='\t', lineterminator='\r\n')
+    writer.writerow(('name', 'position', 'consensus', 'flag', 'decision', 'note'))
+    for row in rows:
+        writer.writerow((row['name'], row['position'], row['consensus'], row['flag'], row['decision'], row['note']))
+    return output.getvalue()
+
+
 def summary_tsv(summary):
     output = io.StringIO()
     writer = csv.writer(output, delimiter='\t', lineterminator='\r\n')
@@ -226,7 +268,7 @@ def summary_tsv(summary):
 
 
 def run_batch(input_dir, output_dir, *, sheet=None, settings=None, trim=None, allow_single=False,
-              dry_run=False):
+              dry_run=False, review=False, review_config=None):
     """Process a folder of AB1 files. Originals are never modified.
 
     ``sheet`` is a CSV path (or None for GUI-style prefix grouping). Returns a JSON-serializable summary.
@@ -246,6 +288,10 @@ def run_batch(input_dir, output_dir, *, sheet=None, settings=None, trim=None, al
     output_dir = output_dir.resolve()
 
     project, report = build_project(plan, settings, trim)
+    review_summary = review_rows = review_failure = None
+    if review:
+        outcome, review_rows, review_failure = review_project(project, review_config)
+        review_summary = outcome.summary()
     rows = triage(project)
     project_path = output_dir / 'project.json'
     counts = {c: sum(r['category'] == c for r in rows) for c in CATEGORIES}
@@ -264,6 +310,9 @@ def run_batch(input_dir, output_dir, *, sheet=None, settings=None, trim=None, al
                        unassigned=plan.unassigned, sheet_missing=plan.sheet_missing,
                        project=str(project_path), fasta=fasta_files, single_read_not_exported=skipped,
                        not_exported_invalid_sample_id=invalid_ids)
+        if review_summary is not None:
+            summary.update(review=review_summary, review_failure=review_failure)
+            atomic_text(stage / 'review.tsv', review_tsv(review_rows))
         atomic_text(stage / 'summary.json', json.dumps(summary, indent=2, ensure_ascii=False) + '\n')
         atomic_text(stage / 'summary.tsv', summary_tsv(summary))
         if output_dir.is_symlink() or output_dir.exists():
@@ -283,6 +332,13 @@ def format_summary(summary):
         return '\n'.join(out)
     c = summary['counts']
     out = [f"{summary['ab1_files']} AB1 files -> " + ', '.join(f'{c[k]} {k}' for k in CATEGORIES)]
+    review = summary.get('review')
+    if review:
+        out.append(f"Review: {review['sites']} flagged columns, {review['local_resolved']} settled by local trace rules, "
+                   f"{review['model_resolved']} by the model ({review['sent']} sent), {review['unresolved']} left open, "
+                   f"{review['removed']} extra bases removed. Decisions are listed in review.tsv.")
+        if summary.get('review_failure'):
+            out.append(f"Online review stopped: {summary['review_failure']}")
     for r in summary['contigs']:
         extra = f"  flagged columns: {r['issue_columns']}" if r['issue_columns'] else ''
         out.append(f"  {r['category']:<12} {r['name']}  ({', '.join(r['reads'])}){extra}")
@@ -309,13 +365,29 @@ def main(argv=None):
     parser.add_argument('--min-overlap', type=int)
     parser.add_argument('--min-identity', type=float)
     parser.add_argument('--no-trim', action='store_true', help='Disable automatic Mott trimming')
+    parser.add_argument('--review', action='store_true',
+                        help='Settle flagged columns with the local trace rules and write review.tsv')
+    parser.add_argument('--ai-provider', choices=('openai', 'claude', 'gemini'),
+                        help='With --review: also send the columns that remain to this provider (API key from its environment variable)')
+    parser.add_argument('--ai-model', help='Model ID for --ai-provider')
+    parser.add_argument('--ai-effort', default='Default', help='Reasoning effort for --ai-provider')
     args = parser.parse_args(argv)
     settings = {k: v for k, v in (('min_quality', args.min_quality), ('min_overlap', args.min_overlap),
                                   ('min_identity', args.min_identity)) if v is not None}
     try:
+        config = None
+        if args.ai_provider:
+            if not args.review:
+                raise ValueError('--ai-provider needs --review.')
+            from llm_review import CLAUDE, GEMINI, MODELS, OPENAI, ReviewSettings
+            provider = dict(openai=OPENAI, claude=CLAUDE, gemini=GEMINI)[args.ai_provider]
+            config = ReviewSettings(provider, args.ai_model or MODELS[provider], effort=args.ai_effort)
+            config.validate()
+            config.require_key()
         summary = run_batch(args.input, args.output, sheet=args.sheet, settings=settings,
                             trim=dict(enabled=False) if args.no_trim else None,
-                            allow_single=args.allow_single, dry_run=args.dry_run)
+                            allow_single=args.allow_single, dry_run=args.dry_run,
+                            review=args.review, review_config=config)
     except (ValueError, OSError) as exc:
         print(f'Error: {exc}', file=sys.stderr)
         return 2

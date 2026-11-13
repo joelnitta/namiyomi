@@ -169,7 +169,7 @@ class Editor(TkinterDnD.Tk):
           ('View',[('First Read',lambda:self.open_read_direction('F'),'⌘1'),('Second Read',lambda:self.open_read_direction('R'),'⌘2'),('Contig',self.open_contig_view,'⌘3')]),
           ('Assembly',[('Build Contig (manual)',self.build_manual,'⌘B'),('Build Contig (AUTO)',self.build_auto,''),('Return Reads to AB1',self.return_reads_to_ab1,''),('Unify Contig Orientation',self.unify_orientations,'')]),
           ('Settings',[('Trimming Settings…',self.trimming_dialog,''),('Assembly Settings…',self.settings_dialog,''),('Find Settings…',self.find_settings_dialog,''),('Appearance…',self.appearance_dialog,''),('Confirmations…',self.confirmations_dialog,'')]),
-          ('MCP',[('Settings…',self.mcp.settings,''),('Full auto mode by LLM…',self.mcp.full_auto,'')]),
+          ('AI Review',[('Settings…',self.mcp.settings,''),('Review Start…',self.mcp.full_auto,'')]),
           ('Help',[('How To',self.help_dialog,''),('Developer',self.developer_dialog,''),('License and Citation',self.license_dialog,'')])]
         for title,items in menus:
             menu=tk.Menu(bar,tearoff=False,postcommand=native_menus.prune)
@@ -749,9 +749,14 @@ class Editor(TkinterDnD.Tk):
                     coords.append(f'{name}: AB1 {b.raw+1 if b.raw is not None else "inserted"}, Phred {b.quality if b.quality is not None else "n/a"}')
             q=c.quality if str(i) not in co.overrides and str(i) not in co.ai_review else None
             active='Consensus' if self.active_track=='consensus' else 'Source read'
-            review = (' | AI unresolved' if co.ai_unresolved(i) else ' | AI replacement'
-                      if co.ai_review.get(str(i)) in ('A', 'C', 'G', 'T') else ' | Double peak (IUPAC)'
+            note = co.ai_notes.get(str(i))
+            review = (' | Review: unresolved' + (f' ({note})' if note else '') if co.ai_unresolved(i) else
+                      (' | Review: column removed' if co.call(i) == '' else ' | Review: base set')
+                      + (f' ({note})' if note else '')
+                      if co.ai_decided(i) else ' | Double peak (IUPAC)'
                       if c.reason == 'double_peak' and str(i) not in co.overrides else '')
+            if co.auto_flagged(i) and str(i) not in co.overrides:
+                review += ' | AUTO flagged'
             self.status.set(f'{active} | Position {i+1}{review} | Support Q {q if q is not None else "n/a"} | {" | ".join(coords)}')
         else:self.status.set('')
 
@@ -761,7 +766,7 @@ class Editor(TkinterDnD.Tk):
 
     def is_marked(self,col):
         if self.view_kind=='contig' and self.group_key in self.project.contigs:
-            return col in self.project.contigs[self.group_key].issues()
+            return self.project.contigs[self.group_key].flag_color(col) is not None
         if self.read_id and col<len(self.f_pane.mapping):
             b=self.f_pane.mapping[col]
             if b.raw is None:return False
@@ -771,7 +776,7 @@ class Editor(TkinterDnD.Tk):
         return False
 
     def next_issue(self,direction=1):
-        marks=self.project.contigs[self.group_key].issues() if self.view_kind=='contig' and self.group_key in self.project.contigs else [i for i in range(self.length()) if self.is_marked(i)]
+        marks=[i for i in range(self.length()) if self.is_marked(i)]
         if not marks:self.status.set('No review flags.');return
         choices=[i for i in marks if i>self.selection] if direction>0 else [i for i in marks if i<self.selection]
         self.selection=(choices[0] if choices else marks[0]) if direction>0 else (choices[-1] if choices else marks[-1])
@@ -792,8 +797,6 @@ class Editor(TkinterDnD.Tk):
             if self.view_kind=='contig':
                 co = self.project.contigs[self.group_key]
                 co.black_marks[str(i)] = not reviewed
-                if co.ai_review.get(str(i)) == 'N':
-                    co.ai_review.pop(str(i))
             else:
                 b=self.f_pane.mapping[i]
                 if b.raw is not None:self.project.reads[self.read_id].black_marks[str(b.raw)]=not reviewed
@@ -820,21 +823,21 @@ class Editor(TkinterDnD.Tk):
             c.create_text(82,43,anchor='w',text='Drop AB1 files or a project here.',fill='#777');return
         co=self.project.contigs.get(self.group_key) if self.view_kind=='contig' else None
         highlighted,active=self.search_highlights() if co else (set(),set())
-        marked=set(co.issues()) if co else None
         lo,hi=sorted((self.anchor,self.selection))
         for i in range(self.offset,min(self.length(),self.offset+self.visible_count())):
             x=self.x(i)
             if lo<=i<=hi:c.create_rectangle(x-self.cell/2,0,x+self.cell/2,104,fill='#dbe7f6',outline='')
             if i in highlighted:c.create_rectangle(x-self.cell/2,31,x+self.cell/2,57,fill='#ffcc80' if i in active else '#ffe0ac',outline='',tags=('find_hit',))
             call=co.call(i) if co else self.f_pane.mapping[i].base
-            if (i in marked if marked is not None else self.is_marked(i)):
-                color = '#c01c28' if co and co.ai_unresolved(i) else 'black'
+            flag = co.flag_color(i) if co else ('black' if self.is_marked(i) else None)
+            if flag:
+                color = '#c01c28' if flag == 'red' else 'black'
                 c.create_rectangle(x-4,6,x+4,12,fill=color,outline='')
             if (i+1)%10==0 or i==self.offset:c.create_text(x,24,text=str(i+1),font=(MONO_FAMILY,8),fill='#555')
             c.create_text(x,44,text=call or '-',font=self.base_font(),fill=self.base_colors().get(call,'#555'))
             manual=(str(i) in co.overrides) if co else self.f_pane.mapping[i].manual
             if manual:c.create_line(x-5,57,x+5,57,fill='#b66b16',width=2)
-            if co and co.ai_review.get(str(i)) in ('A', 'C', 'G', 'T'):
+            if co and co.ai_decided(i):
                 c.create_line(x-5,57,x+5,57,fill='#007a74',width=2)
             if co and co.insertions.get(str(i)):
                 self.draw_insertion(i,co.insertions[str(i)],i in highlighted)
@@ -1102,7 +1105,7 @@ class Editor(TkinterDnD.Tk):
                 self.arrow(1);return
             self.remember(self.edit_history_entry());co.overrides[str(self.selection)]=value
             co.black_marks.pop(str(self.selection),None)
-            co.ai_review.pop(str(self.selection),None)
+            co.clear_review(self.selection)
             self.project.dirty=True
         elif self.read_id:
             b=self.f_pane.mapping[self.selection]
@@ -1128,7 +1131,7 @@ class Editor(TkinterDnD.Tk):
             if co.stale:messagebox.showinfo('Rebuild Required','Rebuild the contig before editing.');return
             for i in positions:
                 co.overrides[str(i)]=''
-                co.ai_review.pop(str(i),None)
+                co.clear_review(i)
             self.project.dirty=True
         else:
             self.project.edit_read_bases(self.read_id,[self.f_pane.mapping[i].raw for i in positions],'')
@@ -1554,7 +1557,8 @@ class Editor(TkinterDnD.Tk):
             '(9) Contig orientation\nNew contigs follow the first earlier, sufficiently matching contig. Assembly > Unify Contig Orientation applies this to existing contigs. Unrelated or ambiguous matches are left unchanged. This is relative orientation, not annotated genomic forward strand. Edit > Reverse Complement remains available.\n\n'
             '(10) Find a sequence\nSelect a contig and type DNA into the Find box above the consensus (Cmd+F). Matches are orange; both forward and reverse-complement strands are checked. Enter / Shift+Enter or the arrows visit next / previous matches; Cmd+G / Shift+Cmd+G also work. Esc clears the search. Settings > Find Settings sets minimum identity from 80 to 100% (default: exact). Identity is matching letters / query length, without gaps. IUPAC symbols match literally, not as wildcards. Searches use the edited consensus, including inserted bases and excluding deletions; they do not edit the sequence.\n\n'
             '(11) Return a contig to AB1 files\nSelect a contig, then right-click > Return Reads to AB1 (also in Assembly). This removes the contig, not its source reads. Source edits and cuts are kept; consensus-only edits and review flags are removed. Cmd+Z restores the whole contig. Shared reads stay under any remaining contig.\n\n'
-            '(12) Confirmation choices\nDelete, Return Reads to AB1 and export-with-flags dialogs offer "Don\'t ask again for this action". The choice is saved only when you proceed. Settings > Confirmations re-enables each prompt. Unsaved changes and warnings before replacing consensus edits cannot be skipped this way.')
+            '(12) Confirmation choices\nDelete, Return Reads to AB1 and export-with-flags dialogs offer "Don\'t ask again for this action". The choice is saved only when you proceed. Settings > Confirmations re-enables each prompt. Unsaved changes and warnings before replacing consensus edits cannot be skipped this way.\n\n'
+            '(13) Review Start\nAI Review > Review Start assembles unused reads by filename prefix, then checks every flagged column against the traces on this device. A flag is settled when one read is in a clean, evenly spaced stretch there or the peak is clear; an extra base that the better read does not support is removed. If an online provider is set in AI Review > Settings, the columns that remain are sent as sampled trace signal without file names, and an answer is applied only when the model is confident and the signal supports it. A teal underline marks a settled column and the status bar names the rule or model. Red flags are columns left open; the status bar shows the model\'s suggestion when there is one. Cmd+Z undoes the assembly and every review decision together. Check the result before exporting.')
         window,body=self.panel('How To');window.resizable(True,True)
         text=tk.Text(body,width=76,height=28,wrap='word',font=(UI_FAMILY,12),fg='black',bg='white',padx=12,pady=10)
         scroll=ttk.Scrollbar(body,orient='vertical',command=text.yview);text.configure(yscrollcommand=scroll.set)

@@ -2,7 +2,7 @@ cff-version: 1.2.0
 message: "If you use namiyomi, please cite this software and record the version and processing settings."
 type: software
 title: "Namiyomi: Sanger chromatogram review and contig assembly"
-version: 0.1.0
+version: 0.2.0
 date-released: 2026-11-10
 license: MIT
 repository-code: "https://github.com/yoneoka-katsuhiro/namiyomi"

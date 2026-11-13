@@ -10,7 +10,7 @@ from unittest.mock import patch
 from auto_assembly import unassembled_groups
 from core import Project
 from llm_review import (CLAUDE, GEMINI, OFFLINE, OPENAI, ReviewError, ReviewPreferences, ReviewSettings,
-                        format_report, list_models, ordered_contigs, prioritize_contigs, test_connection)
+                        format_report, list_models, test_connection)
 from mcp_dialogs import assemble_snapshot, review_snapshot
 from mcp_server import MAX_ROWS, quality_snapshot
 from test_core import synthetic
@@ -35,36 +35,80 @@ def peak_fixture():
 
 
 class ConsensusReviewTests(unittest.TestCase):
-    def test_ai_can_approve_a_peak_but_cannot_choose_the_base_or_clear_a_mixed_peak(self):
+    def review(self, reply, **settings):
         project, _ = peak_fixture()
-        config = ReviewSettings(key='test-credential', effort='high')
-        with patch('llm_review._generate', side_effect=[
-                '{"approved_ids":["P00001"]}', '{"priority_ids":["C001"]}']) as generate:
-            made, errors, summary, _, _, failure = review_snapshot(project, unassembled_groups(project), config)
-        self.assertEqual((errors, failure), ([], None))
+        config = ReviewSettings(key='test-credential', **settings)
+        with patch('llm_review._generate', return_value=reply) as generate:
+            made, errors, summary, _, failure = review_snapshot(project, unassembled_groups(project), config)
+        self.assertEqual(errors, [])
+        return project, config, made, summary, failure, generate
+
+    def test_local_rule_settles_the_clear_peak_and_only_the_mixed_peak_is_sent(self):
+        project, config, made, summary, failure, generate = self.review(
+            '{"decisions":[{"id":"P00001","call":"N","confidence":"low"}]}', effort='high')
+        self.assertIsNone(failure)
         contig = next(iter(made.values()))
         self.assertEqual(contig.columns[3].call, 'N')
         self.assertEqual((contig.call(3), contig.call(6)), ('G', 'N'))
+        self.assertEqual(contig.ai_notes['3'], 'local rule: clear peak')
         self.assertEqual(contig.issues(), [6])
         self.assertTrue(contig.ai_unresolved(6))
-        self.assertEqual((summary['replaced_n'], summary['red_flags']), (1, 1))
-        payload = json.loads(generate.call_args_list[0].args[2])
-        self.assertEqual(set(payload[0]), {'id', 'agreeing_traces', 'best_agreeing_phred', 'weakest_peak_ratio'})
-        self.assertEqual(len(payload), 1)
-        self.assertIn('Check the 1 red flag', format_report(config, summary, ('C001',)))
+        review = summary['review']
+        self.assertEqual((review['sites'], review['local_resolved'], review['sent'], review['model_resolved'],
+                          review['unresolved']), (2, 1, 1, 0, 1))
+        self.assertEqual(summary['red_flags'], 1)
+        generate.assert_called_once()
+        prompt = generate.call_args.args[2]
+        self.assertIn('Site P00001', prompt)
+        self.assertNotIn('P00002', prompt)
+        self.assertIn('T15@+0<-target', prompt)
+        self.assertNotIn('G19@+0<-target', prompt)
+        self.assertIn('1 red flag', format_report(config, summary))
         key = next(iter(made))
         project.reverse_contig(key)
         self.assertEqual(contig.call(5), 'C')
+        self.assertEqual(contig.ai_notes['5'], 'local rule: clear peak')
         self.assertTrue(contig.ai_unresolved(2))
 
-    def test_invalid_decision_preserves_local_assembly_and_flags(self):
-        project, _ = peak_fixture()
-        with patch('llm_review._generate', return_value='{"approved_ids":["P99999"]}'):
-            made, _, _, _, _, failure = review_snapshot(project, unassembled_groups(project),
-                                                         ReviewSettings(key='test-credential'))
+    def test_model_answer_is_applied_only_when_confident_and_supported_by_the_signal(self):
+        for call, confidence, expected, counted in (
+                ('T', 'high', 'T', 'model_resolved'),       # confirms the read's call; a T summit is there
+                ('C', 'high', 'N', 'model_suggested'),      # a C summit exists, but one read cannot overrule itself
+                ('G', 'high', 'N', 'model_rejected'),       # no G signal at this column
+                ('-', 'high', 'N', 'model_rejected'),       # one read cannot show its own call is spurious
+                ('T', 'low', 'N', 'model_declined')):
+            with self.subTest(call=call, confidence=confidence):
+                reply = '{"decisions":[{"id":"P00001","call":"%s","confidence":"%s"}]}' % (call, confidence)
+                _, _, made, summary, failure, _ = self.review(reply)
+                contig = next(iter(made.values()))
+                self.assertIsNone(failure)
+                self.assertEqual(contig.call(6), expected)
+                self.assertEqual(summary['review'][counted], 1)
+                self.assertEqual(contig.ai_unresolved(6), expected == 'N')
+                self.assertTrue(contig.ai_notes['6'].startswith('gpt-6-luna: '))
+
+    def test_failed_online_step_keeps_the_local_decisions(self):
+        _, _, made, summary, failure, _ = self.review('{"decisions":[{"id":"P99999","call":"A","confidence":"high"}]}')
         contig = next(iter(made.values()))
-        self.assertEqual((contig.call(3), contig.call(6), contig.ai_review), ('N', 'N', {}))
-        self.assertIn('valid base review', failure)
+        self.assertEqual((contig.call(3), contig.call(6)), ('G', 'N'))
+        self.assertEqual(contig.ai_review, {'3': 'G'})
+        self.assertEqual(contig.flag_color(6), 'black')
+        self.assertEqual(summary['red_flags'], 0)
+        self.assertIn('chromatogram site decision', failure)
+        self.assertFalse(summary['review']['completed'])
+
+    def test_this_device_only_never_calls_the_network(self):
+        project, _ = peak_fixture()
+        with patch('llm_review._post', side_effect=AssertionError('offline called the network')):
+            made, _, summary, _, failure = review_snapshot(project, unassembled_groups(project),
+                                                           ReviewSettings(OFFLINE, ''))
+        contig = next(iter(made.values()))
+        self.assertIsNone(failure)
+        self.assertEqual((contig.call(3), contig.call(6)), ('G', 'N'))
+        self.assertEqual(contig.flag_color(6), 'black')
+        self.assertEqual((summary['review']['local_resolved'], summary['review']['sent']), (1, 0))
+        self.assertIn('Local trace rules settled 1 of 2 flagged columns.',
+                      format_report(ReviewSettings(OFFLINE, ''), summary))
 
     def test_double_peak_setting_calls_iupac_and_keeps_a_review_flag(self):
         project, read = peak_fixture()
@@ -130,26 +174,26 @@ class McpQualityTests(unittest.TestCase):
         self.assertEqual(self.project.snapshot(), first)
         self.assertEqual(first[0], baseline[0])
         with patch('llm_review._post', side_effect=AssertionError('offline called the network')):
-            self.assertEqual(prioritize_contigs(ReviewSettings(OFFLINE, '', 'Japanese'), summary), ())
+            self.assertIsNone(review_snapshot(self.project, {}, ReviewSettings(OFFLINE, '', 'Japanese'))[-1])
 
     def test_report_shows_actionable_warning_and_honest_no_warning_result(self):
         _, _, summary, _ = assemble_snapshot(self.project, unassembled_groups(self.project))
         settings = ReviewSettings(GEMINI, 'gemini-3.5-flash-lite', 'Japanese')
-        report = format_report(settings, summary, ('C001',))
+        report = format_report(settings, summary)
         self.assertIn('4本のリードのうち4本を使い、2件', report)
-        self.assertIn('[gemini-3.5-flash-lite]', report)
-        self.assertIn('C001 の計1か所を手動で確認', report)
-        self.assertIn('Open Contig', report)
-        self.assertNotIn('C002', report)
-        self.assertEqual(len(report.split('\n\n')), 2)
+        self.assertNotIn('gemini-3.5-flash-lite', report)
+        self.assertIn('要確認：1箇所', report)
+        self.assertIn('コンティグ名をクリック', report)
+        self.assertNotIn('C001', report)
+        self.assertEqual(len(report.splitlines()), 2)
 
         clean = dict(summary, review_flags=0, flagged_contigs=0, contigs=summary['contigs'][1:])
         self.assertIn('手動確認が必要な警告はありません。', format_report(settings, clean))
         partial = dict(clean, reads_used=2, new_contigs=1, unassembled_reads=2, single_read_contigs=1, failed_groups=1)
-        partial_report = format_report(settings, partial, failure=True)
+        partial_report = format_report(settings, partial, failure='Connection failed')
         self.assertIn('4本のリードのうち2本を使い、1件', partial_report)
-        self.assertIn('未組み立てリード2本、単一リードのコンティグ1件、組み立て失敗1グループ', partial_report)
-        self.assertIn('端末内の結果', partial_report)
+        self.assertIn('未組み立て2本、単一リードのコンティグ1件、組み立て失敗1グループ', partial_report)
+        self.assertIn('Connection failed', partial_report)
         self.assertNotIn('[gemini', partial_report)
         self.assertNotIn('手動確認が必要な警告はありません', partial_report)
 
@@ -165,11 +209,9 @@ class McpQualityTests(unittest.TestCase):
         self.assertEqual(len(summary['contigs']), MAX_ROWS)
         self.assertEqual(len(rows), MAX_ROWS + 2)
         self.assertNotIn('LocalName', json.dumps(summary))
-        order = ('C004', 'C002', 'C005', 'C001', 'C003')
-        self.assertEqual(tuple(row['id'] for row in ordered_contigs(rows, order)[:5]), order)
-        report = format_report(ReviewSettings(OFFLINE, '', 'Japanese'), summary, order)
-        self.assertIn(f'C004、C002、C005、C001、C003（ほか{MAX_ROWS - 3}件）', report)
-        self.assertIn(f'計{MAX_ROWS + 2}か所', report)
+        report = format_report(ReviewSettings(OFFLINE, '', 'Japanese'), summary)
+        self.assertNotIn('C001', report)
+        self.assertIn(f'要確認：{MAX_ROWS + 2}箇所', report)
 
     def test_stdio_inspects_only_the_project_selected_at_launch(self):
         messages = [
@@ -194,46 +236,6 @@ class McpQualityTests(unittest.TestCase):
         self.assertEqual(wrong_path['error']['code'], -32602)
         self.assertEqual(write['error']['code'], -32602)
 
-    def test_online_providers_parse_text_and_send_only_quality_summary(self):
-        _, _, summary, _ = assemble_snapshot(self.project, unassembled_groups(self.project))
-        reply = '{"priority_ids":["C001"]}'
-        for provider, model, response, url in (
-            (OPENAI, 'gpt-5-mini', {'status': 'completed', 'output': [
-                {'type': 'reasoning'}, {'type': 'message', 'content': [{'type': 'output_text', 'text': reply}]}]},
-             'https://api.openai.com/v1/responses'),
-            (CLAUDE, 'claude-haiku-5-5', {'stop_reason': 'end_turn', 'content': [
-                {'type': 'thinking'}, {'type': 'text', 'text': reply}]}, 'https://api.anthropic.com/v1/messages'),
-            (GEMINI, 'gemini-3.5-flash-lite', {'candidates': [{'finishReason': 'STOP', 'content': {'parts': [
-                {'thought': True, 'text': 'ignore'}, {'text': f'```json\n{reply}\n```'}]}}]},
-             'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent'),
-        ):
-            with self.subTest(provider=provider), patch('llm_review._post', return_value=response) as send:
-                settings = ReviewSettings(provider, model, 'Japanese', 'test-credential')
-                self.assertEqual(prioritize_contigs(settings, summary), ('C001',))
-                endpoint, headers, payload = send.call_args.args
-                self.assertEqual(endpoint, url)
-                if provider == GEMINI:
-                    self.assertEqual(headers, {'x-goog-api-key': 'test-credential'})
-                else:
-                    self.assertEqual(headers['Authorization'], 'Bearer test-credential')
-                self.assertNotIn('test-credential', json.dumps(payload))
-                if provider == OPENAI:
-                    self.assertFalse(payload['store'])
-                    self.assertEqual(json.loads(payload['input']), summary)
-                elif provider == CLAUDE:
-                    self.assertEqual(json.loads(payload['messages'][0]['content']), summary)
-                else:
-                    self.assertEqual(json.loads(payload['contents'][0]['parts'][0]['text']), summary)
-
-    def test_model_cannot_clear_a_flag_or_add_an_unknown_contig(self):
-        _, _, summary, _ = assemble_snapshot(self.project, unassembled_groups(self.project))
-        settings = ReviewSettings(key='test-credential')
-        for answer in ('{"priority_ids":[]}', '{"priority_ids":["C002"]}', '{"priority_ids":["C999"]}', 'Looks good.'):
-            with self.subTest(answer=answer), patch('llm_review._generate', return_value=answer):
-                with self.assertRaisesRegex(ReviewError, 'valid review order'):
-                    prioritize_contigs(settings, summary)
-                self.assertIn('1 flagged site in C001', format_report(settings, summary, failure=True))
-
     def test_key_is_session_only_and_truncated_report_is_not_presented_as_complete(self):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / 'mcp.json'
@@ -243,7 +245,15 @@ class McpQualityTests(unittest.TestCase):
             self.assertEqual(prefs.load().key, '')
         with patch('llm_review._post', return_value={'status': 'incomplete', 'output': []}):
             with self.assertRaisesRegex(ReviewError, 'did not finish'):
-                prioritize_contigs(ReviewSettings(key='example-secret'), {'contigs_total': 1, 'contigs': []})
+                test_connection(ReviewSettings(key='example-secret'))
+
+    def test_fresh_preferences_default_to_this_device_only(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            prefs = ReviewPreferences(Path(tmp) / 'mcp.json')
+            self.assertEqual(prefs.load(), ReviewSettings(OFFLINE, ''))
+            saved = ReviewSettings(OPENAI, 'my-model', 'Japanese', effort='high')
+            prefs.save(saved)
+            self.assertEqual(prefs.load(), saved)
 
     def test_model_picker_loads_future_models_without_sending_project_data(self):
         with patch('llm_review._request', return_value={'data': [

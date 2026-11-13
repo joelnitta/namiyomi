@@ -17,9 +17,11 @@ def fully_trimmed(read):
     return read.start == read.end and not read.insertions.get(str(read.end))
 
 
-def assemble_groups(project, groups):
+def assemble_groups(project, groups, *, on_group_done=None):
     made, errors = [], []
-    for prefix, ids in groups.items():
+    for completed, (prefix, ids) in enumerate(groups.items()):
+        if completed and on_group_done is not None:
+            on_group_done(completed, len(groups))
         usable = [rid for rid in ids if not fully_trimmed(project.reads[rid])]
         if not usable:
             errors.append(f'{prefix}: No retained bases after trimming.')
@@ -39,4 +41,6 @@ def assemble_groups(project, groups):
             made.append(project.assemble_reads(usable, name, key))
         except Exception as exc:
             errors.append(f'{prefix}: {exc}')
+    if groups and on_group_done is not None:
+        on_group_done(len(groups), len(groups))
     return made, errors

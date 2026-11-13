@@ -1,18 +1,9 @@
-"""Screen uncalled consensus columns against local AB1 peak evidence."""
-from dataclasses import dataclass
+"""Detect aligned double peaks for optional IUPAC calls."""
 
 from core import COMPLEMENT
 
 DOUBLE_PEAK_RATIO = 0.65
 IUPAC_PAIRS = {'AC': 'M', 'AG': 'R', 'AT': 'W', 'CG': 'S', 'CT': 'Y', 'GT': 'K'}
-
-
-@dataclass(frozen=True)
-class Candidate:
-    contig: str
-    column: int
-    base: str
-    metrics: dict
 
 
 def _rank_peaks(trace, raw):
@@ -103,48 +94,3 @@ def double_peak_code(project, contig, column):
         if called <= set(pair) and (original.call == 'N' or original.call in pair):
             return IUPAC_PAIRS[pair]
     return None
-
-
-def screen_uncalled(project):
-    """Return local candidates and the N positions that could not be resolved."""
-    candidates, unresolved = [], []
-    min_q = project.settings['min_quality']
-    for key, contig in project.contigs.items():
-        if contig.stale:
-            continue
-        for column, original in enumerate(contig.columns):
-            position = str(column)
-            if (contig.call(column) != 'N' or position in contig.overrides
-                    or contig.black_marks.get(position) is False):
-                continue
-            sources = [(rid, rev, base) for rid, rev, base in _sources(contig, column) if base is not None]
-            if any(base.manual for _, _, base in sources):
-                continue
-            if original.reason in ('indel', 'no_support'):
-                unresolved.append((key, column))
-                continue
-            peaks, called = {}, set()
-            for rid, reverse, base in sources:
-                if base.quality is not None and base.quality >= min_q and base.base in 'ACGT':
-                    called.add(base.base)
-                trace = project.traces.get(rid)
-                if trace is None or base.raw is None:
-                    continue
-                peak = _peak(trace, base.raw, reverse)
-                if peak is not None:
-                    winner, ratio = peak
-                    quality = base.quality if winner == base.base else None
-                    peaks.setdefault(winner, {})[trace.sha256] = (ratio, quality)
-            if len(peaks) == 1:
-                winner, support = next(iter(peaks.items()))
-                best_q = max((q for _, q in support.values() if q is not None), default=0)
-                weakest_ratio = min(r for r, _ in support.values())
-                # One trace needs an agreeing instrument call and strong peak separation.
-                single_ok = best_q >= max(18, min_q - 2) and weakest_ratio >= 6
-                if called <= {winner} and (len(support) >= 2 or single_ok):
-                    candidates.append(Candidate(key, column, winner, dict(
-                        agreeing_traces=len(support), best_agreeing_phred=best_q,
-                        weakest_peak_ratio=round(min(100, weakest_ratio), 1))))
-                    continue
-            unresolved.append((key, column))
-    return candidates, unresolved
