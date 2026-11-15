@@ -1,4 +1,4 @@
-# namiyomi ver 0.2.0
+# namiyomi ver 0.2.1
 
 A focused desktop editor for Sanger sequencing: inspect AB1 chromatograms, trim read ends, assemble selected reads, review the consensus, and export FASTA.
 
@@ -6,12 +6,12 @@ namiyomi keeps the sequence and its supporting traces in one workspace. It is de
 
 ## Download namiyomi here
 
-- **[Download for macOS — Apple Silicon, macOS 15+](https://github.com/yoneoka-katsuhiro/namiyomi/releases/download/v0.2.0/namiyomi-0.2.0-macOS-arm64-development.zip)**
-- **[Download for Windows — Windows 10/11 x64, experimental](https://github.com/yoneoka-katsuhiro/namiyomi/releases/download/v0.2.0/namiyomi-0.2.0-Windows-x64.zip)**
+- **[Download for macOS — Apple Silicon, macOS 15+](https://github.com/yoneoka-katsuhiro/namiyomi/releases/download/v0.2.1/namiyomi-0.2.1-macOS-arm64-development.zip)**
+- **[Download for Windows — Windows 10/11 x64, experimental](https://github.com/yoneoka-katsuhiro/namiyomi/releases/download/v0.2.1/namiyomi-0.2.1-Windows-x64.zip)**
 
-These ZIPs contain the ready-to-run application. No Python installation is required. The files in the repository are for developers; you do not need to download them to use namiyomi.
+These ZIPs contain the ready-to-run desktop application. No Python installation is required for the app. The optional [MCP review server](#review-and-trim-from-an-mcp-client) runs separately from the source code with Python.
 
-[Release notes](https://github.com/yoneoka-katsuhiro/namiyomi/releases/tag/v0.2.0) · [日本語](README-ja.md) · [Build and distribution guide](DISTRIBUTION.md)
+[Release notes](https://github.com/yoneoka-katsuhiro/namiyomi/releases/tag/v0.2.1) · [日本語](README-ja.md) · [Build and distribution guide](DISTRIBUTION.md)
 
 ![The consensus sequence above its aligned source chromatograms in namiyomi on macOS. The displayed data are synthetic.](docs/images/namiyomi-contig-macos.png)
 
@@ -21,8 +21,8 @@ These ZIPs contain the ready-to-run application. No Python installation is requi
 
 | Package | System | Release status |
 | --- | --- | --- |
-| `namiyomi-0.2.0-macOS-arm64-development.zip` | Apple Silicon, macOS 15 or later | Tested on the developer's Mac. Ad-hoc signed; not Developer ID signed or Apple notarized. Not an Intel or universal build. |
-| `namiyomi-0.2.0-Windows-x64.zip` | Windows 10/11, x64 | Experimental. Full hands-on testing on a physical Windows PC has not been completed. Errors may occur. |
+| `namiyomi-0.2.1-macOS-arm64-development.zip` | Apple Silicon, macOS 15 or later | Ad-hoc signed development package; not Developer ID signed or Apple notarized. Not an Intel or universal build. |
+| `namiyomi-0.2.1-Windows-x64.zip` | Windows 10/11, x64 | Experimental. Full hands-on testing on a physical Windows PC has not been completed. Errors may occur. |
 
 Download the appropriate ZIP from [Releases](https://github.com/yoneoka-katsuhiro/namiyomi/releases). Standalone packages include Python and their dependencies; a separate Python installation is not required.
 
@@ -30,7 +30,7 @@ Download the appropriate ZIP from [Releases](https://github.com/yoneoka-katsuhir
 
 **Windows:** extract the complete `namiyomi` folder, then open `namiyomi.exe`. Keep the `_internal` folder beside the executable; do not copy the executable out on its own. The executable is not Authenticode signed, so Windows may display a security warning. The Windows build workflow uses Windows Server 2022 for automated build and startup checks; consult [Actions](https://github.com/yoneoka-katsuhiro/namiyomi/actions) for the outcome of each run. Those checks do not replace hands-on testing of the complete workflow on Windows 10/11.
 
-Version 0.2.0 is an early release. Back up your AB1 files and projects, and check exported sequences before using them in an analysis.
+Version 0.2.1 is an early release. Back up your AB1 files and projects, and check exported sequences before using them in an analysis.
 
 ## What namiyomi does
 
@@ -90,7 +90,7 @@ Use **Edit > Undo** to undo the assembly and review together. See the [trace rev
 
 Use the batch command to trim reads, assemble them by sample, and export FASTA in one run. For example, `sample07_F.ab1` and `sample07_R.ab1` belong to the same group because the names match before the first `_`. Use each prefix for one specimen and one locus. If your filenames do not follow this pattern, supply a CSV to define the groups.
 
-**Try the included demo** with Python 3.10 or later and the extracted source code ZIP. In a terminal, open the folder that contains `README.md` and run these two lines in order. If your system uses `python3` (Mac) or `py -3` (Windows), use that in place of `python`. [Download the v0.2.0 source code ZIP](https://github.com/yoneoka-katsuhiro/namiyomi/archive/refs/tags/v0.2.0.zip)
+**Try the included demo** with Python 3.10 or later and the extracted source code ZIP. In a terminal, open the folder that contains `README.md` and run these two lines in order. If your system uses `python3` (Mac) or `py -3` (Windows), use that in place of `python`. [Download the v0.2.1 source code ZIP](https://github.com/yoneoka-katsuhiro/namiyomi/archive/refs/tags/v0.2.1.zip)
 
 ```sh
 python -m pip install -r requirements/batch.txt
@@ -109,28 +109,29 @@ Add `--review` to check flagged positions against their traces on your device an
 
 ### Review and trim from an MCP client
 
-This is a different feature from **AI Review**, and you do not need it to use AI Review. The table shows how they differ.
+The optional **MCP review server** lets an external client inspect and edit saved projects through Model Context Protocol (MCP). It is a separate Python tool in the source code, not a new menu in the desktop app. **AI Review** works without this setup.
 
 | | **AI Review** (menu in the app) | **MCP review server** |
 | --- | --- | --- |
 | Who reviews | namiyomi's local rules, then optionally OpenAI, Claude or Gemini through **your API key** | An MCP client you already use, such as Claude Code or Claude Desktop, with no API key in namiyomi |
 | How it runs | Click **AI Review > Review Start** in the app | You ask the client in chat, for example "run namiyomi on my reads, review the flags, then trim the ends" |
 | What the AI model sees | Bases, quality scores and a short numeric signal excerpt near each flag | Sequences, file names and chromatogram images, through the tools below |
-| Setup | None | `pip install -r requirements/mcp.txt` and register `src/mcp_review_server.py` with the client |
+| How decisions are checked | The model must give a confident answer that also passes namiyomi's trace checks | The client judges the evidence; its submitted decisions do not go through AI Review's model-answer checks |
+| Setup | None for local rules; an API key for online review | `pip install -r requirements/mcp.txt` and register `src/mcp_review_server.py` with the client |
 | Results | Written into the project and shown in the app | The same: written to a new project file that opens in the app, with flags the client left open shown in red |
 
-Use AI Review for a quick check inside the app. Use the MCP server when you want to work with the reads in a conversation: batch a folder, look at individual traces, and trim contig ends by a rule you describe. Both settle the clear flags with the same local trace rules first.
+Use AI Review for a quick check inside the app. Use the MCP server when you want to work with the reads in a conversation: batch a folder, look at individual traces, and trim contig ends by a rule you describe. The MCP batch tool uses the same local trace rules by default before handing the remaining flags to the client.
 
-1. **Install** (once): `python -m pip install -r requirements/mcp.txt`.
+1. **Install** (once): extract the [v0.2.1 source code ZIP](https://github.com/yoneoka-katsuhiro/namiyomi/archive/refs/tags/v0.2.1.zip), open its folder in a terminal and run `python -m pip install -r requirements/mcp.txt` with Python 3.10 or later.
 2. **Register the server** with your client. For Claude Code:
    ```sh
    claude mcp add namiyomi-review -- /path/to/python /path/to/namiyomi/src/mcp_review_server.py
    ```
    Other clients take the same command and argument in their MCP settings.
-3. **Ask the client to work on a folder**, and give it an output folder that does not exist yet. It can run the batch, show flagged traces, and propose end trims. It changes nothing until you agree to a rule.
-4. **Open the result.** Edits are saved to a new `project.reviewed.json` with a `review_report.md`; your original project and FASTA stay untouched. Open it with **File > Import Previous Project**. Columns are numbered from 1, as in the app.
+3. **Ask the client to work on a folder**, and give it an output folder that does not exist yet. It can run the batch, show flagged traces, and propose end trims. The trimming prompt asks you to agree to a rule and confirm the proposed cuts before applying them.
+4. **Open the result.** Edits are saved to a new project file, such as `project.reviewed.json`, with a `review_report.md`. Existing project destinations are refused. FASTA exports always use `<marker>.reviewed.fasta` and refuse existing files; use a new output folder for another export. Open the reviewed project with **File > Import Previous Project**. All MCP column numbers start at 1, as in the app. A trim is refused if its cut range contains a manual replacement or inserted bases; review those in the app first.
 
-The server makes no network calls itself, but the connected client sees the sequences and trace images it asks for, so register it only with a client you trust with your data. The smaller `src/mcp_server.py` is separate: it only reports anonymous quality counts and cannot edit or export anything. See the [batch guide](docs/BATCH.md#review-and-trim-from-an-mcp-client) for the full tool list.
+The server makes no network calls itself, but the connected client sees the sequences and trace images it asks for, so register it only with a client you trust with your data. The existing **read-only quality summary via MCP** (`src/mcp_server.py`) reports anonymous quality counts and cannot edit or export anything. Both servers use MCP; they expose different operations. See the [batch guide](docs/BATCH.md#review-and-trim-from-an-mcp-client) for the full tool list.
 
 ### Find a sequence on either strand
 
@@ -181,7 +182,7 @@ namiyomi is released under the [MIT License](LICENSE.txt). Bundled dependencies 
 
 Suggested citation:
 
-> Yoneoka, K. (2026). *Namiyomi: Sanger chromatogram review and contig assembly* (Version 0.2.0) [Computer software]. GitHub. https://github.com/yoneoka-katsuhiro/namiyomi
+> Yoneoka, K. (2026). *Namiyomi: Sanger chromatogram review and contig assembly* (Version 0.2.1) [Computer software]. GitHub. https://github.com/yoneoka-katsuhiro/namiyomi
 
 In text, cite **Yoneoka (2026)** or **(Yoneoka, 2026)**.
 

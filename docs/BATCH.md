@@ -82,9 +82,10 @@ python src/batch.py --input demo --output ./demo-results
 Supply a **new** output directory. Results include `project.json` (open with
 **File > Import Previous Project**), `summary.json`, `summary.tsv`, and FASTA
 files grouped by marker. Summary rows distinguish no flags, needs review,
-single read and failed assembly. Review flag coordinates in the CLI reports are
-zero-based alignment columns. Single-read FASTA records are excluded unless
-`--allow-single` is set. Keep the source AB1s in place so the project can reopen.
+single read and failed assembly. The CLI summary files (`summary.json` and
+`summary.tsv`) use zero-based alignment columns for flags; the review decisions
+in `review.tsv` use one-based positions. Single-read FASTA records are excluded
+unless `--allow-single` is set. Keep the source AB1s in place so the project can reopen.
 
 The default grouping uses filenames before the first underscore. With
 `--sheet samples.csv`, groups are defined by the `file,sample,marker` columns
@@ -112,9 +113,13 @@ python src/batch.py --input reads --output ./reviewed --review \
 `scripts/benchmark_trace_review.py --input FOLDER` measures the local rules on
 your own reads by holding one read out of each group.
 
-## Read-only MCP server for external hosts
+<a id="read-only-mcp-server-for-external-hosts"></a>
 
-A local host supporting MCP over stdio can connect to the same quality tool.
+## Read-only quality summary via MCP
+
+The existing `src/mcp_server.py` implements Model Context Protocol (MCP). Its role
+is to provide a **read-only quality summary**, using the single tool `get_quality_summary`.
+A local host supporting MCP over stdio can connect to it.
 For example, configure a host with these command and argument values, replacing
 the paths with absolute paths for your machine:
 
@@ -145,13 +150,16 @@ an external host.
 
 ## Review and trim from an MCP client
 
-`src/mcp_server.py` above is deliberately narrow. For an MCP client such as Claude Desktop or Claude Code
-that should do the review itself, there is a second, opt-in server, `src/mcp_review_server.py`. It is the
-counterpart of the in-app AI review: the in-app review sends flagged columns to a model with your API key,
-while this server lets a client you already use look at the traces and submit decisions.
+The optional **MCP review server**, `src/mcp_review_server.py`, lets a client such as Claude Desktop
+or Claude Code inspect traces and submit review decisions. Both this server and the read-only quality
+summary above use MCP; this one also exposes editing and export tools.
+
+This is a separate Python tool in the source code, not a menu or bundled server in the desktop
+application. Extract the source code, open its directory in a terminal, and install the optional
+dependencies with Python 3.10 or later. The in-app **AI Review** needs no external MCP setup.
 
 ```sh
-pip install -r requirements/mcp.txt
+python -m pip install -r requirements/mcp.txt
 ```
 
 ```json
@@ -169,20 +177,35 @@ Tools: `scan_folder`, `run_batch`, `list_contigs`, `get_contig_details`, `get_co
 `find_sequence`, `render_trace`, `describe_contig_ends`, `suggest_quality_trim`, `apply_review_edits`,
 `export_fasta`, and a `trim_contig_ends` prompt.
 
-- **Same pipeline.** `run_batch` first settles the flags the local trace rules can decide, as the in-app
-  review does, and leaves the rest to the client. No online model is called by the server.
+- **Local rules first.** By default, `run_batch` settles the flags the local trace rules can decide, as
+  the in-app review does, and leaves the rest to the client. Set `local_rules=false` to skip that step.
+  No online model is called by the server.
+- **Client decisions.** In-app AI Review sends numeric trace evidence to a model and checks its confidence
+  and signal support before applying an answer. The MCP client can inspect chromatogram images and
+  submit its own decisions. `apply_review_edits` checks edit validity and protects manual edits, but it
+  does not apply AI Review's model-answer confidence or signal-support checks.
 - **Same results.** `apply_review_edits` writes its decisions into the same per-column review store the app
   uses, with the client's reason as the note. They appear in the app like in-app results, and a flag the
   client leaves open shows as a red unresolved flag. A column you edited by hand is never overwritten.
-  End trims are applied like deleting consensus bases by hand.
-- **Same numbering.** Columns are numbered from 1, as in the app and `review.tsv`.
+  End trims are applied like deleting consensus bases by hand. A cut is refused if it would remove a
+  nonempty manual replacement or a manual insertion; inspect those edits in the app first.
+- **One-based MCP numbering.** Every MCP column argument and returned flag position is numbered from 1,
+  including `run_batch` and `list_contigs`, as in the app and `review.tsv`. CLI summary files retain
+  their zero-based flag coordinates.
 - **Conservative start, then follow-ups.** For end trimming the client compares rules, usually starts
   with the conservative one (keep only the region two reads cover), and then tries stricter or looser
-  rules at your direction. Nothing is trimmed until you agree on a rule.
-- **Never in place.** Edits go to a new `*.reviewed.json` with a `review_report.md` beside it, and
-  `export_fasta` writes `<marker>.reviewed.fasta` so the batch run's FASTA stays untouched.
+  rules at your direction. The trimming prompt instructs the client to obtain your agreement on the
+  rule and confirmation of the proposed cuts before applying them.
+- **New outputs.** Edits must go to a new project filename, for example `project.reviewed.json`; existing
+  destinations are refused. Each edit is appended to `review_report.md` beside the output.
+  `export_fasta` always writes `<marker>.reviewed.fasta`, regardless of the project filename, and refuses
+  existing destinations. For another review, use the latest reviewed project as input, choose a new
+  project filename, and export into a new folder. The batch run's FASTA stays untouched.
 - **Open the result in the app.** From a source checkout: `python src/app.py --project /path/to/project.reviewed.json`.
 - **Privacy.** Unlike `get_quality_summary`, these tools return sequences, read file names and trace
   images to the connected client, so register it only with a client you trust with the data.
 
 The batch and triage work is based on Joel Nitta's [PR #2](https://github.com/yoneoka-katsuhiro/namiyomi/pull/2).
+The optional MCP review server and end-trimming tools were contributed by Joel Nitta in
+[PR #3](https://github.com/yoneoka-katsuhiro/namiyomi/pull/3), with output protection and coordinate fixes
+for the 0.2.1 release.

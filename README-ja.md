@@ -1,4 +1,4 @@
-# namiyomi ver 0.2.0
+# namiyomi ver 0.2.1
 
 **AB1の波形確認から、トリミング、コンティグ作成、配列編集、FASTA出力まで。**
 
@@ -6,12 +6,12 @@ namiyomiは、日常的なサンガーシーケンスの確認作業に用途を
 
 ## ここからアプリをダウンロードできます
 
-- **[macOS版をダウンロード — Apple Silicon、macOS 15以降](https://github.com/yoneoka-katsuhiro/namiyomi/releases/download/v0.2.0/namiyomi-0.2.0-macOS-arm64-development.zip)**
-- **[Windows版をダウンロード — Windows 10/11 x64、試験版](https://github.com/yoneoka-katsuhiro/namiyomi/releases/download/v0.2.0/namiyomi-0.2.0-Windows-x64.zip)**
+- **[macOS版をダウンロード — Apple Silicon、macOS 15以降](https://github.com/yoneoka-katsuhiro/namiyomi/releases/download/v0.2.1/namiyomi-0.2.1-macOS-arm64-development.zip)**
+- **[Windows版をダウンロード — Windows 10/11 x64、試験版](https://github.com/yoneoka-katsuhiro/namiyomi/releases/download/v0.2.1/namiyomi-0.2.1-Windows-x64.zip)**
 
-このZIPに、すぐに起動できるアプリが入っています。Pythonのインストールは不要です。リポジトリ内のソースやテストを個別にダウンロードする必要はありません。
+このZIPに、すぐに起動できるデスクトップアプリが入っています。アプリにはPythonのインストールは不要です。任意で使う[MCPレビューサーバー](#mcpクライアントから確認トリムする)は、ソースコードからPythonで別に起動します。
 
-[リリース情報](https://github.com/yoneoka-katsuhiro/namiyomi/releases/tag/v0.2.0) · [English](README.md) · [ビルド・配布について](DISTRIBUTION.md)
+[リリース情報](https://github.com/yoneoka-katsuhiro/namiyomi/releases/tag/v0.2.1) · [English](README.md) · [ビルド・配布について](DISTRIBUTION.md)
 
 ![コンセンサス配列と、位置を揃えて表示した元リードのクロマトグラム。macOS版の画面。表示データは人工的に生成したものです。](docs/images/namiyomi-contig-macos.png)
 
@@ -21,8 +21,8 @@ namiyomiは、日常的なサンガーシーケンスの確認作業に用途を
 
 | 配布ファイル | 対象 | 確認状況 |
 | --- | --- | --- |
-| `namiyomi-0.2.0-macOS-arm64-development.zip` | Apple Silicon、macOS 15以降 | 開発者のMacで動作を確認しています。アドホック署名の開発版で、Developer ID署名・Apple公証はありません。Intel版・Universal版ではありません。 |
-| `namiyomi-0.2.0-Windows-x64.zip` | Windows 10/11、x64 | 試験公開です。実際のWindows PCによる、インポートから編集・保存・出力までの一連の操作確認は完了していません。エラーが出る可能性があります。 |
+| `namiyomi-0.2.1-macOS-arm64-development.zip` | Apple Silicon、macOS 15以降 | アドホック署名の開発版で、Developer ID署名・Apple公証はありません。Intel版・Universal版ではありません。 |
+| `namiyomi-0.2.1-Windows-x64.zip` | Windows 10/11、x64 | 試験公開です。実際のWindows PCによる、インポートから編集・保存・出力までの一連の操作確認は完了していません。エラーが出る可能性があります。 |
 
 [Releases](https://github.com/yoneoka-katsuhiro/namiyomi/releases)から使用するOSのZIPをダウンロードしてください。Pythonと必要なライブラリは同梱しているため、別途インストールする必要はありません。
 
@@ -30,7 +30,7 @@ namiyomiは、日常的なサンガーシーケンスの確認作業に用途を
 
 **Windows：** `namiyomi`フォルダ全体を展開し、`namiyomi.exe`を開きます。`_internal`フォルダは実行ファイルの隣に置き、実行ファイルだけを取り出さないでください。Authenticode署名はないため、Windowsでセキュリティ警告が出る場合があります。Windows用の自動ビルド・起動確認にはWindows Server 2022を使用します。各実行の結果は[Actions](https://github.com/yoneoka-katsuhiro/namiyomi/actions)で確認できますが、Windows 10/11実機での一連の操作確認に代わるものではありません。
 
-ver 0.2.0は初期リリースです。元のAB1とプロジェクトをバックアップし、出力配列を確認してから解析に使用してください。
+ver 0.2.1は初期リリースです。元のAB1とプロジェクトをバックアップし、出力配列を確認してから解析に使用してください。
 
 ## できること
 
@@ -90,7 +90,7 @@ AUTOは、各接頭辞が「同一個体の同一領域」を表す場合だけ�
 
 AB1ファイルがたくさんあるときは、コマンド一つで末端をトリミングし、試料ごとに組み立てて、FASTAに出力できます。たとえば `sample07_F.ab1` と `sample07_R.ab1` は、最初の `_` より前が同じなので、一つのグループになります。接頭辞は同じ試料・同じ領域のファイルにだけ使ってください。ファイル名で区別できないときは、CSVでグループを指定できます。
 
-**同梱デモで試す**には、Python 3.10以降を用意し、ソースコードZIPを展開します。ターミナルで、`README.md` があるフォルダを開き、次の2行を順に実行します。環境によっては `python` を `python3`（Mac）または `py -3`（Windows）に置き換えてください。[v0.2.0のソースコードZIP](https://github.com/yoneoka-katsuhiro/namiyomi/archive/refs/tags/v0.2.0.zip)
+**同梱デモで試す**には、Python 3.10以降を用意し、ソースコードZIPを展開します。ターミナルで、`README.md` があるフォルダを開き、次の2行を順に実行します。環境によっては `python` を `python3`（Mac）または `py -3`（Windows）に置き換えてください。[v0.2.1のソースコードZIP](https://github.com/yoneoka-katsuhiro/namiyomi/archive/refs/tags/v0.2.1.zip)
 
 ```sh
 python -m pip install -r requirements/batch.txt
@@ -109,28 +109,29 @@ python src/batch.py --input demo --output demo-results
 
 ### MCPクライアントから確認・トリムする
 
-これは **AI Review** とは別の機能です。AI Reviewを使うのにMCPは必要ありません。違いを下の表にまとめます。
+任意で導入する **MCPレビューサーバー** は、MCP（Model Context Protocol）を使い、外部クライアントから保存済みプロジェクトを確認・編集するための機能です。ソースコードから別に起動するPythonツールで、デスクトップアプリの新しいメニューではありません。アプリ内の **AI Review** は、この設定なしで使えます。
 
 | | **AI Review**（アプリのメニュー） | **MCPレビューサーバー** |
 | --- | --- | --- |
 | 確認する主体 | namiyomiのローカル規則。続いて、必要なら **ご自身のAPIキー** でOpenAI・Claude・Gemini | Claude CodeやClaude Desktopなど、すでに使っているMCPクライアント。namiyomiにAPIキーは不要 |
 | 使い方 | アプリで **AI Review > Review Start** をクリック | クライアントとの会話で依頼する（例：「このリードをnamiyomiで処理して、フラッグを確認し、末端をトリムして」） |
 | AIモデルが見るもの | 各フラッグ付近の塩基、クオリティ値、数値化した波形の抜粋 | 配列、ファイル名、波形画像（下記のツール経由） |
-| 準備 | 不要 | `pip install -r requirements/mcp.txt` を実行し、`src/mcp_review_server.py` をクライアントに登録 |
+| 判定の確認 | AIの確信度が高く、namiyomiの波形チェックでも裏付けられる場合に反映 | クライアントが根拠を判断。提出した編集にはAI Reviewのモデル回答用チェックはかからない |
+| 準備 | 端末内の規則には不要。オンラインレビューにはAPIキーが必要 | `pip install -r requirements/mcp.txt` を実行し、`src/mcp_review_server.py` をクライアントに登録 |
 | 結果 | プロジェクトに記録され、アプリに表示される | 同じ。新しいプロジェクトファイルに保存され、アプリで開ける。クライアントが判断を保留したフラッグは赤で表示 |
 
-アプリ内で手早く確認したいときはAI Review、会話しながらリードを扱いたいとき（フォルダの一括処理、個々の波形の確認、指定した規則での末端トリム）はMCPサーバーが向いています。どちらも、はじめにローカルの波形規則で明確な箇所を処理します。
+アプリ内で手早く確認したいときはAI Review、会話しながらリードを扱いたいとき（フォルダの一括処理、個々の波形の確認、指定した規則での末端トリム）はMCPサーバーが向いています。MCPの一括処理も、初期設定では同じローカルの波形規則を実行し、残ったフラッグをクライアントに渡します。
 
-1. **インストール**（初回のみ）：`python -m pip install -r requirements/mcp.txt`
+1. **インストール**（初回のみ）：[v0.2.1のソースコードZIP](https://github.com/yoneoka-katsuhiro/namiyomi/archive/refs/tags/v0.2.1.zip)を展開し、そのフォルダで `python -m pip install -r requirements/mcp.txt` を実行します。Python 3.10以降が必要です。
 2. **クライアントにサーバーを登録する。** Claude Codeの場合：
    ```sh
    claude mcp add namiyomi-review -- /path/to/python /path/to/namiyomi/src/mcp_review_server.py
    ```
    ほかのクライアントも、MCP設定に同じコマンドと引数を指定します。
-3. **フォルダの処理を依頼する。** まだ存在しない出力フォルダを指定してください。一括処理、フラッグ付き波形の確認、末端トリムの提案ができます。トリムの規則に同意するまで、何も変更しません。
-4. **結果を開く。** 編集は新しい `project.reviewed.json` と `review_report.md` に保存され、元のプロジェクトとFASTAは変更されません。**File > Import Previous Project** で開きます。列番号はアプリと同じく1から数えます。
+3. **フォルダの処理を依頼する。** まだ存在しない出力フォルダを指定してください。一括処理、フラッグ付き波形の確認、末端トリムの提案ができます。トリム用のプロンプトは、規則への同意と切り取り範囲の確認を得てから適用するよう、クライアントに指示します。
+4. **結果を開く。** 編集は `project.reviewed.json` などの新しいプロジェクトに保存され、`review_report.md` に記録されます。既存のプロジェクトを出力先に指定するとエラーになります。FASTAは常に `<marker>.reviewed.fasta` という名前で、既存ファイルは上書きしません。再出力には新しい出力フォルダを指定してください。レビュー済みプロジェクトは **File > Import Previous Project** で開きます。MCPの列番号はすべて1から数えます。切り取り範囲に手動で置換・挿入した塩基がある場合はトリムを拒否するので、先にアプリで確認してください。
 
-サーバー自体は通信を行いませんが、接続したクライアントは求めた配列や波形画像を見られます。データを任せてよいクライアントにだけ登録してください。小さい方の `src/mcp_server.py` は別物で、匿名の品質件数を返すだけで、編集や出力はできません。ツールの一覧は[一括処理ガイド（英語）](docs/BATCH.md#review-and-trim-from-an-mcp-client)を参照してください。
+サーバー自体は通信を行いませんが、接続したクライアントは求めた配列や波形画像を見られます。データを任せてよいクライアントにだけ登録してください。既存の **読み取り専用の品質サマリー（MCP接続）**（`src/mcp_server.py`）は、匿名の品質件数を返すだけで、編集や出力はできません。どちらもMCP規格を使っていますが、提供する操作が異なります。ツールの一覧は[一括処理ガイド（英語）](docs/BATCH.md#review-and-trim-from-an-mcp-client)を参照してください。
 
 ### 配列を検索する
 
@@ -181,7 +182,7 @@ namiyomiの役割は1つです。AB1の波形を確認し、コンティグを�
 
 引用例：
 
-> Yoneoka, K. (2026). *Namiyomi: Sanger chromatogram review and contig assembly* (Version 0.2.0) [Computer software]. GitHub. https://github.com/yoneoka-katsuhiro/namiyomi
+> Yoneoka, K. (2026). *Namiyomi: Sanger chromatogram review and contig assembly* (Version 0.2.1) [Computer software]. GitHub. https://github.com/yoneoka-katsuhiro/namiyomi
 
 本文中では **Yoneoka (2026)**、括弧内では **(Yoneoka, 2026)** と表記します。
 

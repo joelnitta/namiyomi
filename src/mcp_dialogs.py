@@ -1,4 +1,4 @@
-"""Native Tk dialogs for the optional local assembly and MCP review workflow."""
+"""Native Tk dialogs for AI Review, local assembly and quality summaries."""
 from bisect import bisect_right
 from copy import copy
 from queue import Empty, Queue

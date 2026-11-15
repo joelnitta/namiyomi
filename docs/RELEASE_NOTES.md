@@ -1,62 +1,56 @@
-# namiyomi ver 0.2.0
+# namiyomi ver 0.2.1
 
-namiyomi is a free desktop editor for routine Sanger sequencing work. It brings AB1 chromatograms, read trimming, selected-read assembly, consensus editing, and FASTA export into one workspace. Assembly and editing run locally. Online AI review is optional.
+Released 2026-11-15.
 
-## Download namiyomi ver 0.2.0 here
-
-- [Download for macOS — Apple Silicon, macOS 15+](https://github.com/yoneoka-katsuhiro/namiyomi/releases/download/v0.2.0/namiyomi-0.2.0-macOS-arm64-development.zip)
-- [Download for Windows — Windows 10/11 x64, experimental](https://github.com/yoneoka-katsuhiro/namiyomi/releases/download/v0.2.0/namiyomi-0.2.0-Windows-x64.zip)
-
-These are the ready-to-run applications. You do not need the repository's source-code ZIP or a separate Python installation.
-
-![namiyomi's consensus and aligned chromatograms on macOS. The data are synthetic.](https://raw.githubusercontent.com/yoneoka-katsuhiro/namiyomi/main/docs/images/namiyomi-contig-macos.png)
-
-*The consensus stays above its supporting chromatograms so each call can be checked against the original traces. This example uses the synthetic demonstration data supplied with namiyomi.*
-
-## Changes since 0.1.0
-
-- **Review Start checks flagged bases against the traces.** **AI Review > Review Start** assembles unused reads by filename prefix, then settles flagged columns with local trace rules: a base is set when one read is clean there or the peak is clear, and an extra base that the better read does not support is removed. This step runs on your device and needs no API key.
-- **Optional online model for what remains.** OpenAI, Claude and Gemini are supported. Only the columns the local rules left open are sent, as sampled trace signal without file names. An answer is applied only when the model is confident and the signal supports it; otherwise the column stays flagged in red with the model's suggestion in the status bar.
-- **Measured on held-out reads.** On 3,795 rbcL reads, the local rules decided 48% of flagged columns with 4 disagreements among 2,846 decisions (0.14%) against a high-quality held-out read used as a reference. The data came from one locus and one laboratory. `scripts/benchmark_trace_review.py` repeats the test on your own reads. See [How Review Start decides](https://github.com/yoneoka-katsuhiro/namiyomi/blob/main/docs/TRACE_REVIEW.md).
-- **Batch command.** `src/batch.py` assembles a folder of AB1 files, optionally by a CSV sample sheet, and writes FASTA, a project and a triage summary. `--review` applies the same review and lists every decision in `review.tsv`.
-- **Read-only MCP quality summary** for one saved project (`src/mcp_server.py`).
-- **Double peaks as IUPAC codes** (Assembly Settings, off by default) and **smoothed chromatogram display** (Appearance).
-- Projects saved in 0.2.0 keep their assembly status when the project and source AB1 files move together. Projects that contain review decisions cannot be opened in 0.1.0.
-
-## Features
-
-- AB1 import with configurable automatic end trimming and manual cuts.
-- Manual contig assembly from two or more selected reads, plus optional filename-prefix AUTO assembly.
-- Aligned source traces, original Phred bars, consensus Support Q, and review flags.
-- Review Start: automatic trace check of flagged columns, with an optional online model.
-- Base editing with linked consensus updates, Undo/Redo, and reverse complement.
-- Both-strand sequence search, with exact or 80–100% identity matching.
-- Project saving, local recovery snapshots, and FASTA export/copy.
-- **Return Reads to AB1** to undo an assembly while retaining read edits and trimming.
-
-![Orange highlights show a Find match in the synthetic consensus.](https://raw.githubusercontent.com/yoneoka-katsuhiro/namiyomi/main/docs/images/namiyomi-find-macos.png)
-
-*Find checks the query and its reverse complement. The default is exact matching; the identity threshold can be changed in Settings.*
+namiyomi 0.2.1 adds an optional MCP review server for reviewing Sanger chromatograms and comparing end-trimming rules in a conversation with an external client. The desktop app's **AI Review** remains available from its existing menu.
 
 ## Download
 
-| File | Target |
+- [Download for macOS — Apple Silicon, macOS 15+](https://github.com/yoneoka-katsuhiro/namiyomi/releases/download/v0.2.1/namiyomi-0.2.1-macOS-arm64-development.zip)
+- [Download for Windows — Windows 10/11 x64, experimental](https://github.com/yoneoka-katsuhiro/namiyomi/releases/download/v0.2.1/namiyomi-0.2.1-Windows-x64.zip)
+- [Source code for batch processing and the optional MCP review server](https://github.com/yoneoka-katsuhiro/namiyomi/archive/refs/tags/v0.2.1.zip)
+
+The desktop ZIPs include Python and can be used without installing it separately. The optional MCP review server runs from the source code and requires its own Python environment and client configuration.
+
+## Changes since 0.2.0
+
+- **Optional MCP review server.** Joel Nitta's [PR #3](https://github.com/yoneoka-katsuhiro/namiyomi/pull/3) adds tools to process AB1 folders, inspect flagged columns and chromatogram images, search sequences, compare end-trimming rules, save review decisions, and export FASTA. It uses the same local trace rules by default and stores decisions in the same review fields displayed by the app. Thanks to Joel for this contribution and the earlier batch-processing work.
+- **Clearer names for the two MCP services.** The existing `src/mcp_server.py` is described as the **read-only quality summary via MCP**. It returns anonymous counts through `get_quality_summary`. The new `src/mcp_review_server.py` is the **MCP review server**, with trace-inspection, editing and export tools. Both implement MCP; their capabilities differ.
+- **Protected review outputs.** Reviewed projects require a new filename. FASTA exports always use `<marker>.reviewed.fasta`, including when a project has been renamed, and refuse existing destinations. Another review can use the latest reviewed project as input and export into a new folder.
+- **Consistent MCP column numbers.** All MCP column arguments and returned flag positions start at 1. The command-line summary files retain their existing zero-based flag coordinates; `review.tsv` uses one-based positions.
+- **Manual edits protected during trimming.** A proposed cut that includes a nonempty manual replacement or manually inserted bases is refused, so those edits can be inspected in the app first.
+- **Updated instructions.** The English and Japanese READMEs explain the difference between in-app AI Review and client-driven MCP review, with source installation steps, batch examples and refreshed AI Review screenshots.
+
+## Using the MCP review server
+
+Extract the source code ZIP, open its folder in a terminal, and use Python 3.10 or later:
+
+```sh
+python -m pip install -r requirements/mcp.txt
+```
+
+Register `/path/to/python /path/to/namiyomi/src/mcp_review_server.py` with a trusted MCP client. See the [batch guide](https://github.com/yoneoka-katsuhiro/namiyomi/blob/v0.2.1/docs/BATCH.md#review-and-trim-from-an-mcp-client) for client configuration and the tool list. Open the resulting project in namiyomi with **File > Import Previous Project**.
+
+In-app **AI Review** sends numeric evidence to an optional online model and checks the answer's confidence and support in the signal before applying it. The MCP client can request sequences, read names and trace images, then submit its own decisions. Those submitted edits do not go through AI Review's model-answer confidence and signal checks. The server itself makes no network calls; the connected client controls how the data it receives is used.
+
+## 日本語での変更点
+
+- NittaさんのPR #3を取り込み、外部MCPクライアントとの会話で波形の確認、末端トリムの比較、レビュー結果の保存・FASTA出力を行う機能を追加しました。
+- 既存のMCP機能は「読み取り専用の品質サマリー（MCP接続）」、新機能は「MCPレビューサーバー」として役割を明確にしました。アプリ内の **AI Review** は従来どおり使えます。
+- 既存の出力ファイルの上書き、MCPツール間の列番号のずれ、末端トリムによる手編集済み塩基の消失を防ぐ修正を加えました。
+- MCPレビューサーバーはソースコードから別途導入するPythonツールです。デスクトップアプリの新しいメニューではありません。
+
+## Package status and verification
+
+| Package | Target and status |
 | --- | --- |
-| `namiyomi-0.2.0-macOS-arm64-development.zip` | Apple Silicon, macOS 15 or later. Not Intel or universal. |
-| `namiyomi-0.2.0-Windows-x64.zip` | Windows 10/11 x64; experimental. |
+| `namiyomi-0.2.1-macOS-arm64-development.zip` | Apple Silicon, macOS 15 or later; ad-hoc signed development package. Not an Intel or universal build. No Developer ID signature or Apple notarization. |
+| `namiyomi-0.2.1-Windows-x64.zip` | Windows 10/11 x64; experimental and not Authenticode signed. |
 
-Extract the ZIP before opening the app. A separate Python installation is not required. On Windows, open `namiyomi.exe` from the extracted folder and keep its `_internal` folder beside it.
+Extract the complete ZIP before opening the app. On Windows, keep `_internal` beside `namiyomi.exe`. Operating-system security warnings may appear; do not disable system protections to install the packages.
 
-**macOS signing:** this is an ad-hoc signed development package, not Developer ID signed or Apple notarized. macOS may warn about or block it. **Windows signing:** the executable is not Authenticode signed and may also trigger security warnings. Do not disable system security protections to install either package.
+The repository's [Actions workflow](https://github.com/yoneoka-katsuhiro/namiyomi/actions) runs automated tests and Windows package/startup checks. Consult the run for this release for its results. These checks do not establish full hands-on validation on Windows 10/11; that remains incomplete.
 
-**Windows verification:** the Windows package is produced by the repository's [Actions workflow](https://github.com/yoneoka-katsuhiro/namiyomi/actions), which runs the tests and a GUI startup check on Windows Server 2022. Check the run for this release. Full hands-on testing on a physical Windows PC has not been completed, and errors may occur.
+Keep the source AB1 files with their project, retain independent backups, and inspect exported sequences. The included `demo` uses synthetic sequences and signals. Projects with review decisions require namiyomi 0.2.0 or later; they cannot be opened in 0.1.0.
 
-## Before using your own data
-
-Version 0.2.0 is an early release. Keep independent backups and inspect exported sequences, including columns settled by Review Start. Project JSON files reference the original AB1 files; keep them together when moving a project. Support Q is supporting original Phred evidence, not a calibrated combined probability. Assembly is intended for small sets of overlapping reads from the same specimen and locus.
-
-Both application ZIPs include a `demo` folder. For a first look, open its `Demo.json` through **File > Import Previous Project**. Keep the four AB1 files beside the project. These files contain synthetic demonstrations, not biological observations or instrument measurements. Use **Save Project As** if you want to keep your practice session separately.
-
-The application and source code are free under the MIT License. See the [English README](https://github.com/yoneoka-katsuhiro/namiyomi#readme) or [日本語の説明](https://github.com/yoneoka-katsuhiro/namiyomi/blob/main/README-ja.md) for instructions, limitations, and a comparison with other Sanger tools.
-
-Developed by Katsuhiro Yoneoka, Mishima, Shizuoka, Japan. [Report a problem](https://github.com/yoneoka-katsuhiro/namiyomi/issues).
+[Full changes from v0.2.0](https://github.com/yoneoka-katsuhiro/namiyomi/compare/v0.2.0...v0.2.1) · [English README](https://github.com/yoneoka-katsuhiro/namiyomi#readme) · [日本語の説明](https://github.com/yoneoka-katsuhiro/namiyomi/blob/main/README-ja.md)
