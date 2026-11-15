@@ -7,14 +7,15 @@ other review result: a decided column, or a red "unresolved" flag. End trims use
 (like deleting a consensus base by hand). Everything goes to a NEW project file, never over the input.
 """
 import io
-import shutil
+import json
+import os
 import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
 
 from batch import CLEAN, NEEDS_REVIEW, SINGLE_READ, triage
-from core import COMPLEMENT, Project, atomic_text, base_text, export_markers
+from core import COMPLEMENT, Project, atomic_text, export_markers, marker_filename
 from sequence_find import consensus_coordinates, find_matches
 from trace_plot import trace_samples
 
@@ -27,7 +28,9 @@ def _one(column):
 def _zero(value, what='column'):
     try:
         column = int(value)
-    except (TypeError, ValueError):
+        if isinstance(value, bool) or (not isinstance(value, str) and column != value):
+            raise ValueError
+    except (TypeError, ValueError, OverflowError):
         raise ValueError(f'{what} must be a whole number (columns are numbered from 1).') from None
     return column - 1
 
@@ -54,7 +57,7 @@ def list_contigs(project, category=None):
         if category not in (CLEAN, NEEDS_REVIEW, SINGLE_READ):
             raise ValueError(f'Unknown filter {category!r}; use clean, needs_review or single_read.')
         rows = [r for r in rows if r['category'] == category]
-    return rows
+    return [dict(row, issue_columns=[_one(c) for c in row['issue_columns']]) for row in rows]
 
 
 def contig_details(project, ref):
@@ -387,6 +390,7 @@ def render_trace(project, ref, column, window=15):
         ax.set_ylim(-.05, 1.25)
         ax.set_yticks([])
         ax.set_xlim(left - .5, right - .5)
+        ax.xaxis.set_major_formatter(lambda value, position: f'{value + 1:g}')
         strand = ' (reverse-complemented)' if source.reverse else ''
         ax.set_title(f'{Path(read.path).name}{strand}', loc='left', fontsize=9)
     axes[-1].set_xlabel(f"{contig.sequence_name}: alignment column {column + 1} (highlighted). "
@@ -406,6 +410,33 @@ def _note(reviewer, reason):
     return text if len(text) <= NOTE_LIMIT else text[:NOTE_LIMIT - 1] + '…'
 
 
+def _require_new(path):
+    if path.exists() or path.is_symlink():
+        raise ValueError(f'{path} already exists; choose a new output path.')
+
+
+def _publish_new(staged, destination):
+    """Publish a completed file without replacing a file created after validation."""
+    try:
+        os.link(staged, destination)
+    except FileExistsError:
+        raise ValueError(f'{destination} already exists; choose a new output path.') from None
+
+
+def _review_report(project, source, output, report_path):
+    requested = Path(report_path).expanduser() if report_path else output.with_name('review_report.md')
+    if requested.is_symlink() or requested.suffix.lower() != '.md':
+        raise ValueError('Choose a Markdown review report (.md), not a symbolic link.')
+    report = project.validate_output_path(requested)
+    if report in (source, output) or (report.exists() and report.samefile(source)):
+        raise ValueError('The review report must be separate from the input and output projects.')
+    existed = report.exists()
+    old = report.read_text(encoding='utf-8') if existed else '# Review report\n'
+    if not old.startswith('# Review report\n'):
+        raise ValueError('The report path contains another document; choose a new report path.')
+    return report, old, existed
+
+
 def apply_review_edits(project_path, output_path, edits, report_path=None, reviewer='Claude', unresolved=None):
     """Apply review verdicts to a COPY of the project and log each with its reason.
 
@@ -418,13 +449,18 @@ def apply_review_edits(project_path, output_path, edits, report_path=None, revie
     ``unresolved`` optionally gives ``{contig, column, reason}`` for flags deliberately left alone;
     every flag still open after the edits is listed in the report, with its reason if given.
     """
-    source, output = Path(project_path).expanduser().resolve(), Path(output_path).expanduser().resolve()
+    source = Path(project_path).expanduser().resolve()
+    requested = Path(output_path).expanduser()
+    _require_new(requested)
+    output = requested.resolve()
     if source == output:
         raise ValueError('The reviewed project must be saved to a new file; the input is never overwritten.')
     edits, unresolved = list(edits or []), list(unresolved or [])
     if not edits and not unresolved:
         raise ValueError('No edits given.')
     project = load_project(source)
+    output = project.validate_output_path(output)
+    report, old, report_existed = _review_report(project, source, output, report_path)
     plan = []
     for n, edit in enumerate(edits, start=1):
         try:
@@ -448,6 +484,15 @@ def apply_review_edits(project_path, output_path, edits, report_path=None, revie
                     raise ValueError(f'Need 1 <= keep_from <= keep_to <= {total}.')
                 if col == (0, last):
                     raise ValueError('keep_from..keep_to covers the whole contig; nothing to trim.')
+                if any(value not in ('', '-') and not col[0] <= int(i) <= col[1]
+                       for i, value in contig.overrides.items()):
+                    raise ValueError('The trim would remove a column edited by hand; review it in the app.')
+                # Insertions sit before their column; a trailing insertion has position total.
+                # Keep the boundary insertion only when that end is not being cut.
+                if any(value and ((col[0] > 0 and int(i) <= col[0])
+                                  or (col[1] < last and int(i) > col[1]))
+                       for i, value in contig.insertions.items()):
+                    raise ValueError('The trim would remove bases inserted by hand; review them in the app.')
             else:
                 col = _zero(edit['column'])
                 if not 0 <= col <= last:
@@ -501,9 +546,7 @@ def apply_review_edits(project_path, output_path, edits, report_path=None, revie
         if contig.ai_review.get(str(col), 'N') == 'N':
             contig.ai_review[str(col)] = 'N'
             contig.ai_notes[str(col)] = _note(reviewer, reason or 'left for the user')
-    project.dirty = True
-    project.save(output)
-    remaining = [r for r in triage(project) if r['category'] == NEEDS_REVIEW]
+    remaining = [r for r in triage(project) if r['issue_columns'] or r['stale']]
     open_lines = []
     for r in remaining:
         for col in r['issue_columns']:
@@ -511,12 +554,32 @@ def apply_review_edits(project_path, output_path, edits, report_path=None, revie
             open_lines.append(f'- **{r["name"]}** column {col + 1}' + (f': {note}' if note else ''))
     body = '\n'.join(lines) if lines else '_No edits._'
     body += '\n\n### Left unresolved (check these in the app)\n\n' + ('\n'.join(open_lines) or '_None._')
-    report = Path(report_path).expanduser() if report_path else output.with_name('review_report.md')
     stamp = datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')
-    old = report.read_text(encoding='utf-8') if report.exists() else '# Review report\n'
-    atomic_text(report, old.rstrip('\n') + f'\n\n## {reviewer}, {stamp}\n'
-                f'Source project: `{source.name}` (unchanged). Reviewed copy: `{output.name}`.\n\n'
-                + body + '\n')
+    report_text = (old.rstrip('\n') + f'\n\n## {reviewer}, {stamp}\n'
+                   f'Source project: `{source.name}` (unchanged). Reviewed copy: `{output.name}`.\n\n'
+                   + body + '\n')
+    # Stage beside the final file so relative paths to AB1 inputs stay correct.
+    output.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix='.review-', dir=output.parent) as stage:
+        staged = Path(stage) / output.name
+        atomic_text(staged, json.dumps(project.payload(output.parent), ensure_ascii=False, indent=2))
+        _publish_new(staged, output)
+        try:
+            _, current, exists_now = _review_report(project, source, output, report_path)
+            if current != old or exists_now != report_existed:
+                raise ValueError('The review report changed during this edit; retry with a new output path.')
+            if report_existed:
+                atomic_text(report, report_text)
+            else:
+                report.parent.mkdir(parents=True, exist_ok=True)
+                with tempfile.TemporaryDirectory(prefix='.review-report-', dir=report.parent) as report_stage:
+                    staged_report = Path(report_stage) / report.name
+                    atomic_text(staged_report, report_text)
+                    _publish_new(staged_report, report)
+        except Exception:
+            if output.exists() and staged.samefile(output):
+                output.unlink()
+            raise
     return dict(output=str(output), report=str(report), applied=len(plan),
                 still_needs_review=[dict(name=r['name'], columns=[_one(c) for c in r['issue_columns']])
                                         for r in remaining])
@@ -525,12 +588,15 @@ def apply_review_edits(project_path, output_path, edits, report_path=None, revie
 def export_fasta(project_path, output_dir, allow_single=False, suffix=None):
     """One FASTA per marker from a saved project (stale contigs and, unless allowed, single reads are refused).
 
-    Files are named ``<marker><suffix>.fasta``. By default the suffix is ``.reviewed`` when the project file
-    is a reviewed copy (``*.reviewed.json``), so the batch run's unedited FASTA is never overwritten.
+    Files default to ``<marker>.reviewed.fasta`` regardless of the project filename. Existing
+    destinations are refused; choose a new folder for another export. A custom suffix must be a
+    nonempty filename suffix, such as ".reviewed2".
     """
     project_path = Path(project_path).expanduser()
-    if suffix is None:
-        suffix = '.reviewed' if project_path.stem.endswith('.reviewed') else ''
+    suffix = '.reviewed' if suffix is None else suffix
+    if not isinstance(suffix, str) or not suffix.startswith('.') or any(
+            c not in 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._-' for c in suffix):
+        raise ValueError('Use a nonempty filename suffix such as .reviewed.')
     project = load_project(project_path)
     rows = triage(project)
     skip = {r['key'] for r in rows if r['category'] == SINGLE_READ and not allow_single}
@@ -538,12 +604,32 @@ def export_fasta(project_path, output_dir, allow_single=False, suffix=None):
     if not keep:
         raise ValueError('Nothing to export (single-read contigs need allow_single).')
     output_dir = Path(output_dir).expanduser()
+    names = {}
+    for contig in keep.values():
+        name = marker_filename(contig.marker)
+        folded = name.casefold()
+        if folded in names and names[folded] != contig.marker:
+            raise ValueError('Marker names produce the same FASTA filename (ignoring case).')
+        names[folded] = contig.marker
     output_dir.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(dir=output_dir) as tmp:
         names = export_markers(SimpleNamespace(contigs=keep), Path(tmp), allow_single=True)
-        files = []
-        for name in names:
-            final = name[:-len('.fasta')] + suffix + '.fasta'
-            shutil.move(str(Path(tmp) / name), str(output_dir / final))
-            files.append(final)
+        files = [name[:-len('.fasta')] + suffix + '.fasta' for name in names]
+        existing = {p.name.casefold() for p in output_dir.iterdir()}
+        for final in files:
+            if final.casefold() in existing:
+                raise ValueError(f'{output_dir / final} already exists; choose a new output folder.')
+            _require_new(output_dir / final)
+        published = []
+        try:
+            for name, final in zip(names, files):
+                destination = output_dir / final
+                _publish_new(Path(tmp) / name, destination)
+                published.append((Path(tmp) / name, destination))
+        except Exception:
+            # Roll back only files published by this call, preserving any concurrent writer.
+            for staged, destination in published:
+                if destination.exists() and staged.samefile(destination):
+                    destination.unlink()
+            raise
     return dict(fasta=files, single_read_not_exported=sorted(r['name'] for r in rows if r['key'] in skip))

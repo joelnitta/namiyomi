@@ -13,7 +13,7 @@ if HAVE_MCP:
     import mcp_review_server  # a broken server must fail the tests, not be skipped
 
 
-@unittest.skipUnless(HAVE_MCP, 'mcp package not installed (requirements/batch.txt)')
+@unittest.skipUnless(HAVE_MCP, 'mcp package not installed (requirements/mcp.txt)')
 class McpToolTests(unittest.TestCase):
     def setUp(self):
         self._tmp = tempfile.TemporaryDirectory()
@@ -64,6 +64,30 @@ class McpToolTests(unittest.TestCase):
         self.assertEqual(result['still_needs_review'], [])
         files = mcp_review_server.export_fasta(str(self.out / 'project.reviewed.json'), str(self.out / 'final'))
         self.assertEqual(files['fasta'], ['auto.reviewed.fasta'])
+
+    def test_flag_coordinates_agree_across_tools_and_edit(self):
+        import json
+        import review
+        summary = mcp_review_server.run_batch(str(self.demo), str(self.out), local_rules=False)
+        project = str(self.out / 'project.json')
+        listed = mcp_review_server.list_contigs(project, 'needs_review')[0]
+        details = mcp_review_server.get_contig_details(project, listed['name'])
+        columns = [flag['column'] for flag in details['flagged']]
+        self.assertEqual(listed['issue_columns'], columns)
+        row = next(r for r in summary['contigs'] if r['name'] == listed['name'])
+        self.assertEqual(row['issue_columns'], columns)
+        saved = json.loads((self.out / 'summary.json').read_text())
+        original = next(r for r in saved['contigs'] if r['name'] == listed['name'])
+        self.assertEqual(original['issue_columns'], [col - 1 for col in columns])
+        target = self.out / 'second-pass.json'
+        mcp_review_server.apply_review_edits(project, str(target), [dict(
+            contig=listed['name'], column=columns[0], action='set', value='A', reason='synthetic check')])
+        contig = review.resolve_contig(review.load_project(target), listed['name'])[1]
+        self.assertEqual(contig.ai_review[str(columns[0] - 1)], 'A')
+        before = (self.out / 'auto.fasta').read_bytes()
+        result = mcp_review_server.export_fasta(str(target), str(self.out))
+        self.assertEqual(result['fasta'], ['auto.reviewed.fasta'])
+        self.assertEqual((self.out / 'auto.fasta').read_bytes(), before)
 
 
 if __name__ == '__main__':

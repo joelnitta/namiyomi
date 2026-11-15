@@ -1,6 +1,8 @@
+import os
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 import batch
 import review
@@ -51,6 +53,171 @@ class ReviewTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             review.contig_details(project, 'nope')
 
+    def test_list_columns_match_details_without_changing_batch_coordinates(self):
+        project = review.load_project(self.project_path)
+        self.assertEqual(review.list_contigs(project, 'needs_review')[0]['issue_columns'], [self.col])
+        self.assertEqual(batch.triage(project)[0]['issue_columns'], [self.flag])
+
+    def test_existing_reviewed_output_is_preserved(self):
+        edit = dict(contig='Demo01', column=self.col, action='set', value='A', reason='clean A')
+        review.apply_review_edits(self.project_path, self.reviewed, [edit])
+        before = self.reviewed.read_bytes()
+        report = (self.out / 'review_report.md').read_bytes()
+        with self.assertRaisesRegex(ValueError, 'already exists'):
+            review.apply_review_edits(self.project_path, self.reviewed, [dict(edit, value='C')])
+        self.assertEqual(self.reviewed.read_bytes(), before)
+        self.assertEqual((self.out / 'review_report.md').read_bytes(), report)
+
+    def test_new_project_publication_cannot_replace_a_concurrent_file(self):
+        edit = dict(contig='Demo01', column=self.col, action='confirm', reason='keep N')
+        real_publish = review._publish_new
+        def race(staged, destination):
+            destination.write_text('another writer', encoding='utf-8')
+            real_publish(staged, destination)
+        with patch.object(review, '_publish_new', side_effect=race):
+            with self.assertRaisesRegex(ValueError, 'already exists'):
+                review.apply_review_edits(self.project_path, self.reviewed, [edit])
+        self.assertEqual(self.reviewed.read_text(), 'another writer')
+        self.assertFalse((self.out / 'review_report.md').exists())
+
+    def test_report_write_failure_rolls_back_new_project(self):
+        edit = dict(contig='Demo01', column=self.col, action='confirm', reason='keep N')
+        real_publish = review._publish_new
+        def fail_report(staged, destination):
+            if destination.name == 'review_report.md':
+                raise OSError('disk unavailable')
+            real_publish(staged, destination)
+        with patch.object(review, '_publish_new', side_effect=fail_report):
+            with self.assertRaisesRegex(OSError, 'disk unavailable'):
+                review.apply_review_edits(self.project_path, self.reviewed, [edit])
+        self.assertFalse(self.reviewed.exists())
+        self.assertFalse((self.out / 'review_report.md').exists())
+
+    def test_output_and_report_aliases_cannot_replace_projects(self):
+        edit = dict(contig='Demo01', column=self.col, action='confirm', reason='keep N')
+        before = self.project_path.read_bytes()
+        alias = self.out / 'alias.md'
+        os.link(self.project_path, alias)
+        for report in (self.project_path, self.reviewed, alias):
+            with self.assertRaises(ValueError):
+                review.apply_review_edits(self.project_path, self.reviewed, [edit], report_path=report)
+            self.assertFalse(self.reviewed.exists())
+            self.assertEqual(self.project_path.read_bytes(), before)
+        other = self.out / 'other.md'
+        other.write_text('unrelated document', encoding='utf-8')
+        with self.assertRaisesRegex(ValueError, 'another document'):
+            review.apply_review_edits(self.project_path, self.reviewed, [edit], report_path=other)
+        self.assertEqual(other.read_text(), 'unrelated document')
+        self.assertFalse(self.reviewed.exists())
+
+    def test_symlink_outputs_are_rejected_even_if_dangling(self):
+        edit = dict(contig='Demo01', column=self.col, action='confirm', reason='keep N')
+        target = self.out / 'missing.json'
+        try:
+            self.reviewed.symlink_to(target)
+        except OSError:
+            self.skipTest('symlink creation unavailable')
+        with self.assertRaisesRegex(ValueError, 'already exists'):
+            review.apply_review_edits(self.project_path, self.reviewed, [edit])
+        self.assertFalse(target.exists())
+        self.reviewed.unlink()
+        (self.out / 'review_report.md').symlink_to(self.project_path)
+        with self.assertRaisesRegex(ValueError, 'symbolic link'):
+            review.apply_review_edits(self.project_path, self.reviewed, [edit])
+        self.assertFalse(self.reviewed.exists())
+
+    def test_trim_rejects_hand_replacements_and_insertions_at_cut_boundaries(self):
+        project = review.load_project(self.project_path)
+        _, contig = review.resolve_contig(project, 'Demo01')
+        total = len(contig.columns)
+        edit = dict(contig='Demo01', action='trim', keep_from=3, keep_to=total - 2, reason='trim ends')
+        for field, coordinate in (('overrides', 0), ('overrides', total - 1),
+                                  ('insertions', 0), ('insertions', 2),
+                                  ('insertions', total - 2), ('insertions', total)):
+            with self.subTest(field=field, coordinate=coordinate):
+                getattr(contig, field)[str(coordinate)] = 'A'
+                project.save(self.project_path)
+                before = self.project_path.read_bytes()
+                with self.assertRaisesRegex(ValueError, 'by hand'):
+                    review.apply_review_edits(self.project_path, self.reviewed, [edit])
+                self.assertFalse(self.reviewed.exists())
+                self.assertEqual(self.project_path.read_bytes(), before)
+                getattr(contig, field).clear()
+
+    def test_trim_retains_internal_hand_edits_and_allows_previous_deletions(self):
+        project = review.load_project(self.project_path)
+        _, contig = review.resolve_contig(project, 'Demo01')
+        total = len(contig.columns)
+        contig.overrides.update({'0': '', '10': 'A'})
+        contig.insertions['11'] = 'TT'
+        project.save(self.project_path)
+        review.apply_review_edits(self.project_path, self.reviewed, [
+            dict(contig='Demo01', action='trim', keep_from=3, keep_to=total - 2, reason='trim ends')])
+        result = review.resolve_contig(review.load_project(self.reviewed), 'Demo01')[1]
+        self.assertEqual(result.overrides['10'], 'A')
+        self.assertEqual(result.insertions['11'], 'TT')
+        self.assertEqual(result.overrides['0'], '')
+
+    def test_renamed_reviewed_projects_preserve_original_fasta(self):
+        renamed = self.out / 'project.v2.json'
+        before = (self.out / 'auto.fasta').read_bytes()
+        review.apply_review_edits(self.project_path, renamed, [
+            dict(contig='Demo01', column=self.col, action='set', value='A', reason='clean A')])
+        result = review.export_fasta(renamed, self.out)
+        self.assertEqual(result['fasta'], ['auto.reviewed.fasta'])
+        self.assertEqual((self.out / 'auto.fasta').read_bytes(), before)
+        reviewed = (self.out / 'auto.reviewed.fasta').read_bytes()
+        with self.assertRaisesRegex(ValueError, 'already exists'):
+            review.export_fasta(renamed, self.out)
+        self.assertEqual((self.out / 'auto.reviewed.fasta').read_bytes(), reviewed)
+
+    def test_fasta_collision_rejects_all_outputs_before_publishing(self):
+        project = review.load_project(self.project_path)
+        for index, contig in enumerate(project.contigs.values()):
+            contig.marker = f'marker{index}'
+        project.save(self.project_path)
+        existing = self.out / 'marker1.reviewed.fasta'
+        existing.write_text('earlier result', encoding='utf-8')
+        with self.assertRaisesRegex(ValueError, 'already exists'):
+            review.export_fasta(self.project_path, self.out)
+        self.assertFalse((self.out / 'marker0.reviewed.fasta').exists())
+        self.assertEqual(existing.read_text(), 'earlier result')
+
+    def test_fasta_marker_collisions_are_case_insensitive(self):
+        project = review.load_project(self.project_path)
+        for contig, marker in zip(project.contigs.values(), ('Gene', 'gene')):
+            contig.marker = marker
+        project.save(self.project_path)
+        with self.assertRaisesRegex(ValueError, 'ignoring case'):
+            review.export_fasta(self.project_path, self.out)
+        self.assertFalse((self.out / 'Gene.reviewed.fasta').exists())
+
+    def test_fasta_publication_collision_rolls_back_only_this_export(self):
+        project = review.load_project(self.project_path)
+        for index, contig in enumerate(project.contigs.values()):
+            contig.marker = f'marker{index}'
+        project.save(self.project_path)
+        real_publish = review._publish_new
+        def race(staged, destination):
+            if destination.name == 'marker1.reviewed.fasta':
+                destination.write_text('another writer', encoding='utf-8')
+            real_publish(staged, destination)
+        with patch.object(review, '_publish_new', side_effect=race):
+            with self.assertRaisesRegex(ValueError, 'already exists'):
+                review.export_fasta(self.project_path, self.out)
+        self.assertFalse((self.out / 'marker0.reviewed.fasta').exists())
+        self.assertEqual((self.out / 'marker1.reviewed.fasta').read_text(), 'another writer')
+
+    def test_single_read_unresolved_flags_remain_in_report(self):
+        project = review.load_project(self.project_path)
+        _, contig = review.resolve_contig(project, 'Demo01')
+        contig.status = 'single_read'
+        project.save(self.project_path)
+        result = review.apply_review_edits(self.project_path, self.reviewed, [], unresolved=[
+            dict(contig='Demo01', column=self.col, reason='overlapping peaks')])
+        self.assertEqual(result['still_needs_review'], [dict(name='Demo01', columns=[self.col])])
+        self.assertIn(f'**Demo01** column {self.col}', Path(result['report']).read_text())
+
     def test_find_sequence(self):
         project = review.load_project(self.project_path)
         seq = next(c for c in project.contigs.values() if c.sequence_name == 'Demo02').sequence()
@@ -68,6 +235,18 @@ class ReviewTests(unittest.TestCase):
             review.render_trace(project, 'Demo01', 10 ** 6)
         with self.assertRaises(ValueError):
             review.render_trace(project, 'Demo01', 0)  # numbering starts at 1
+
+    @unittest.skipUnless(HAVE_MPL, 'matplotlib not installed')
+    def test_render_trace_axis_uses_one_based_columns(self):
+        from matplotlib.figure import Figure
+        figures = []
+        def figure(*args, **kwargs):
+            figures.append(Figure(*args, **kwargs))
+            return figures[-1]
+        with patch('matplotlib.figure.Figure', side_effect=figure):
+            review.render_trace(review.load_project(self.project_path), 'Demo01', self.col)
+        for axis in figures[0].axes:
+            self.assertEqual(axis.xaxis.get_major_formatter()(self.flag, 0), str(self.col))
 
     def test_apply_edits_writes_copy_and_report(self):
         before = self.project_path.read_bytes()
@@ -135,7 +314,7 @@ class ReviewTests(unittest.TestCase):
                 dict(contig='Demo01', column=1, action='set', value='A', reason='no')])
 
     def test_columns_are_numbered_from_one(self):
-        for bad in (0, -1, 'x'):
+        for bad in (0, -1, 'x', 1.9, True, float('nan'), float('inf')):
             with self.assertRaises(ValueError, msg=str(bad)):
                 review.apply_review_edits(self.project_path, self.reviewed, [
                     dict(contig='Demo01', column=bad, action='set', value='A', reason='x')])
@@ -289,8 +468,8 @@ class ReviewTests(unittest.TestCase):
     def test_export_fasta_from_project(self):
         out = self.out / 'again'
         result = review.export_fasta(self.project_path, out)
-        self.assertEqual(result['fasta'], ['auto.fasta'])
-        self.assertEqual((out / 'auto.fasta').read_text(), (self.out / 'auto.fasta').read_text())
+        self.assertEqual(result['fasta'], ['auto.reviewed.fasta'])
+        self.assertEqual((out / 'auto.reviewed.fasta').read_text(), (self.out / 'auto.fasta').read_text())
 
 
 if __name__ == '__main__':

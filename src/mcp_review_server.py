@@ -55,7 +55,8 @@ def run_batch(input_dir: str, output_dir: str, sheet: str | None = None, allow_s
     allow_single. ``review`` is "human" (default: stop after triage, the user checks flags in the app) or
     "claude" (Claude reviews flags with render_trace and apply_review_edits). ``local_rules`` (default on)
     first settles the flags the app's own trace rules can decide, as the in-app review does; only the
-    rest is left for you. No online model is called. Follow ``next_steps``.
+    rest is left for you. Tool results use 1-based alignment columns; the batch summary files retain
+    the CLI's 0-based issue_columns. No online model is called. Follow ``next_steps``.
     """
     if review not in ('human', 'claude'):
         raise ValueError('review must be "human" or "claude".')
@@ -68,6 +69,9 @@ def run_batch(input_dir: str, output_dir: str, sheet: str | None = None, allow_s
     summary = batch.run_batch(_path(input_dir), out, sheet=_path(sheet) if sheet else None,
                               settings=settings, allow_single=allow_single,
                               review=local_rules)
+    summary['contigs'] = [dict(row, issue_columns=[col + 1 for col in row['issue_columns']])
+                          for row in summary['contigs']]
+    summary['column_numbering'] = '1-based alignment columns (saved batch summaries are 0-based)'
     summary['review_mode'] = review
     summary['next_steps'] = (HUMAN_NEXT if review == 'human' else CLAUDE_NEXT) + TRIM_NOTE
     return summary
@@ -75,7 +79,7 @@ def run_batch(input_dir: str, output_dir: str, sheet: str | None = None, allow_s
 
 @mcp.tool()
 def list_contigs(project_path: str, filter: str | None = None) -> list[dict]:
-    """List contigs in a saved project.json, optionally filtered: clean, needs_review or single_read."""
+    """List contigs with 1-based issue_columns; filter: clean, needs_review or single_read."""
     return review.list_contigs(review.load_project(_path(project_path)), filter)
 
 
@@ -187,7 +191,8 @@ def apply_review_edits(project_path: str, output_path: str, edits: list[dict],
     records a decision for the column (A, C, G, T, or "-" to remove it); "confirm" marks the flag reviewed
     without changing it. To trim a contig's ends: {"contig": name, "action": "trim",
     "keep_from": int, "keep_to": int, "reason": "the rule used"}; columns outside the range are deleted
-    from the consensus. Trim only when the user asked for it, using their rule (suggest_quality_trim
+    from the consensus. A trim that cuts hand-edited bases or insertions is refused; review those in
+    the app. output_path must not exist. Trim only when the user asked for it, using their rule (suggest_quality_trim
     gives ready edits for rolling-mean Phred rules). Every edit is logged with its reason in review_report.md next to
     output_path. Do not edit columns you are unsure about; leave them for the user and pass them in
     ``unresolved`` as {"contig": name, "column": int, "reason": "why"}. Every flag still open is
@@ -200,8 +205,8 @@ def apply_review_edits(project_path: str, output_path: str, edits: list[dict],
 def export_fasta(project_path: str, output_dir: str, allow_single: bool = False) -> dict:
     """Write one FASTA per marker from a saved project (use the reviewed project after review).
 
-    From a reviewed project (*.reviewed.json) the files are named <marker>.reviewed.fasta, so the
-    batch run's unedited <marker>.fasta in the same folder is kept.
+    Files are always named <marker>.reviewed.fasta, regardless of the project filename. Existing
+    files are refused; use a new output folder for a subsequent export.
     """
     return review.export_fasta(_path(project_path), _path(output_dir), allow_single)
 
