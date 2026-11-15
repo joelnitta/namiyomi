@@ -59,4 +59,8 @@ jobs:
           cache: pip
           cache-dependency-path: requirements/build.txt
       - run: 'python -m pip install --only-binary=:all: -r requirements/build.txt'
+      - name: Install optional MCP review dependencies
+        run: 'python -m pip install --only-binary=:all: -r requirements/mcp.txt'
+      - name: Verify optional review dependencies are present
+        run: 'python -c "from mcp.server.fastmcp import FastMCP, Image; from matplotlib.figure import Figure"'
       - run: python scripts/run_tests.py
